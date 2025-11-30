@@ -40,8 +40,8 @@ import {
   canAccessLesson,
   purchaseLesson,
   getTeacherWhatsAppUrl,
-  getCourses,     // ✅ ADD THIS
-  getLessons      // ✅ ADD THIS
+  getCourses,
+  getLessons
 } from './utils/storage';
 
 // Safe object utility functions with detailed logging
@@ -426,6 +426,9 @@ function App() {
           setCurrentUser(updatedUser);
         }
         setMessage('✅ Lesson purchased successfully!');
+        
+        // Redirect to payment success page
+        setCurrentView('payment-success');
         return true;
       } else {
         setMessage('❌ Failed to purchase lesson. Please try again.');
@@ -580,7 +583,7 @@ function App() {
             </>
           );
         case 'payment-success':
-          return <PaymentSuccess />;
+          return <PaymentSuccess setCurrentView={setCurrentView} />;
         case 'login':
         default:
           return (
@@ -635,7 +638,7 @@ function App() {
       case 'support':
         return <Support />;
       case 'payment-success':
-        return <PaymentSuccess />;
+        return <PaymentSuccess setCurrentView={setCurrentView} />;
       case 'admin-courses':
         if (isAdmin) {
           return <AdminCourseManagement currentUser={currentUser} />;
@@ -719,7 +722,7 @@ function App() {
         case 'discussion':
           return <DiscussionForum currentUser={currentUser} />;
         case 'payment-success':
-          return <PaymentSuccess />;
+          return <PaymentSuccess setCurrentView={setCurrentView} />;
         case 'dashboard':
         default:
           return (
@@ -754,7 +757,7 @@ function App() {
             </div>
           );
         case 'payment-success':
-          return <PaymentSuccess />;
+          return <PaymentSuccess setCurrentView={setCurrentView} />;
         case 'dashboard':
         default:
           return <TeacherDashboard currentUser={currentUser} setCurrentUser={updateCurrentUser} />;
@@ -766,7 +769,7 @@ function App() {
       console.log('🎯 Rendering admin views for:', currentView);
       switch(currentView) {
         case 'payment-success':
-          return <PaymentSuccess />;
+          return <PaymentSuccess setCurrentView={setCurrentView} />;
         case 'dashboard':
         default:
           return <AdminDashboard currentUser={currentUser} setCurrentView={setCurrentView} />;
