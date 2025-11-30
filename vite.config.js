@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
-    base: './',
+    base: '/bookstem/', // ← CHANGE THIS LINE
     build: {
       outDir: 'dist',
       sourcemap: false,
