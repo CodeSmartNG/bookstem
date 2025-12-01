@@ -1,223 +1,390 @@
 // utils/paymentService.js
 
-// Simulated payment gateway service for Nigerian banks and mobile money
+// REAL Paystack payment gateway service
 export const paymentService = {
-  // Initialize payment with Paystack (supports Nigerian banks and mobile money)
+  // REAL Paystack Payment Initialization
   async initializePaystackPayment(email, amount, metadata = {}) {
     try {
-      // In a real implementation, this would call Paystack API
-      // For demo purposes, we simulate the payment flow
-      console.log('Initializing Paystack payment:', { email, amount, metadata });
+      const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY || 
+                                  'sk_test_your_paystack_secret_key_here'; // Fallback for demo
       
-      const paymentData = {
-        reference: `paystack_${Date.now()}`,
-        amount: amount * 100, // Paystack expects amount in kobo
-        email: email,
-        currency: 'NGN',
-        metadata: metadata,
-        channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money'] // Support all Nigerian payment methods
-      };
-
-      // Simulate API call to Paystack
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          const response = {
-            status: true,
-            message: 'Authorization URL created',
-            data: {
-              authorization_url: `https://paystack.com/pay/${paymentData.reference}`,
-              access_code: `access_${paymentData.reference}`,
-              reference: paymentData.reference
-            }
-          };
-          resolve(response);
-        }, 1000);
+      console.log('🔐 Initializing REAL Paystack payment:', { 
+        email, 
+        amount, 
+        metadata 
       });
+
+      // REAL API call to Paystack
+      const response = await fetch('https://api.paystack.co/transaction/initialize', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email,
+          amount: amount * 100, // Convert to kobo
+          currency: 'NGN',
+          metadata: metadata,
+          callback_url: `${window.location.origin}/payment-success`,
+          channels: ['card', 'bank', 'ussd', 'qr'] // Nigerian payment channels
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.status) {
+        console.log('✅ Paystack payment initialized:', data);
+        return {
+          status: true,
+          message: 'Payment initialized successfully',
+          data: {
+            authorization_url: data.data.authorization_url,
+            access_code: data.data.access_code,
+            reference: data.data.reference
+          }
+        };
+      } else {
+        console.error('❌ Paystack initialization failed:', data);
+        throw new Error(data.message || 'Failed to initialize payment');
+      }
     } catch (error) {
-      console.error('Paystack initialization error:', error);
-      throw new Error('Failed to initialize payment');
+      console.error('❌ Paystack API error:', error);
+      
+      // Fallback to simulation if API fails (for demo/testing)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 Using simulated Paystack payment for development');
+        return this.simulatePaystackPayment(email, amount, metadata);
+      }
+      
+      throw new Error('Failed to connect to payment gateway. Please try again.');
     }
   },
 
-  // Verify Paystack payment
+  // Simulated Paystack for development/testing
+  simulatePaystackPayment(email, amount, metadata = {}) {
+    console.log('🔄 Using SIMULATED Paystack payment');
+    
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const reference = `paystack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        resolve({
+          status: true,
+          message: 'Simulated payment initialized',
+          data: {
+            authorization_url: `https://simulated-paystack.com/pay/${reference}`,
+            access_code: `simulated_access_${reference}`,
+            reference: reference
+          }
+        });
+      }, 1000);
+    });
+  },
+
+  // REAL Paystack Payment Verification
   async verifyPaystackPayment(reference) {
     try {
-      console.log('Verifying Paystack payment:', reference);
+      const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY || 
+                                  'sk_test_your_paystack_secret_key_here';
       
-      // Simulate API call to verify payment
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          // Simulate successful verification 80% of the time
-          const isSuccess = Math.random() > 0.2;
-          
-          if (isSuccess) {
-            resolve({
-              status: true,
-              message: 'Verification successful',
-              data: {
-                status: 'success',
-                reference: reference,
-                amount: 0, // Would be actual amount from API
-                gateway_response: 'Approved',
-                paid_at: new Date().toISOString()
-              }
-            });
-          } else {
-            resolve({
-              status: false,
-              message: 'Payment verification failed'
-            });
-          }
-        }, 1500);
-      });
-    } catch (error) {
-      console.error('Paystack verification error:', error);
-      throw new Error('Payment verification failed');
-    }
-  },
+      console.log('🔍 Verifying REAL Paystack payment:', reference);
 
-  // Initialize Flutterwave payment (supports Nigerian banks and mobile money)
-  async initializeFlutterwavePayment(email, amount, metadata = {}) {
-    try {
-      console.log('Initializing Flutterwave payment:', { email, amount, metadata });
-      
-      const paymentData = {
-        tx_ref: `flutterwave_${Date.now()}`,
-        amount: amount,
-        currency: 'NGN',
-        payment_options: 'card,account,ussd,banktransfer,mobilemoneyghana',
-        redirect_url: `${window.location.origin}/payment-callback`,
-        customer: {
-          email: email,
-        },
-        meta: metadata,
-        customizations: {
-          title: 'STEM Learning Platform',
-          description: 'Lesson Purchase'
+      const response = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json',
         }
-      };
-
-      // Simulate API call to Flutterwave
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve({
-            status: 'success',
-            message: 'Payment initialized',
-            data: {
-              link: `https://flutterwave.com/pay/${paymentData.tx_ref}`
-            }
-          });
-        }, 1000);
       });
-    } catch (error) {
-      console.error('Flutterwave initialization error:', error);
-      throw new Error('Failed to initialize payment');
-    }
-  },
 
-  // Direct bank transfer simulation (OPay, PalmPay, etc.)
-  async initializeDirectBankTransfer(amount, bankDetails) {
-    try {
-      console.log('Initializing direct bank transfer:', { amount, bankDetails });
-      
-      // Generate virtual account number for the transaction
-      const virtualAccount = `70${Math.random().toString().substr(2, 8)}`;
-      
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve({
-            status: 'success',
-            message: 'Virtual account generated',
-            data: {
-              virtual_account: virtualAccount,
-              bank_name: bankDetails.bankName,
-              account_name: 'STEM Learning Platform',
-              amount: amount,
-              expires_in: '24 hours'
-            }
-          });
-        }, 1000);
-      });
-    } catch (error) {
-      console.error('Bank transfer initialization error:', error);
-      throw new Error('Failed to generate virtual account');
-    }
-  },
+      const data = await response.json();
 
-  // USSD payment simulation
-  async generateUSSDCode(amount, bankCode) {
-    try {
-      console.log('Generating USSD code:', { amount, bankCode });
+      if (data.status && data.data.status === 'success') {
+        console.log('✅ Paystack payment verified:', data);
+        return {
+          status: true,
+          message: 'Payment verified successfully',
+          data: {
+            status: data.data.status,
+            reference: data.data.reference,
+            amount: data.data.amount / 100, // Convert from kobo
+            gateway_response: data.data.gateway_response,
+            paid_at: data.data.paid_at,
+            customer: data.data.customer,
+            metadata: data.data.metadata
+          }
+        };
+      } else {
+        console.error('❌ Paystack verification failed:', data);
+        return {
+          status: false,
+          message: data.message || 'Payment verification failed'
+        };
+      }
+    } catch (error) {
+      console.error('❌ Paystack verification error:', error);
       
-      const banks = {
-        'OPAY': '*955*',
-        'PALMPAY': '*933*',
-        'GTB': '*737*',
-        'ZENITH': '*966*',
-        'ACCESS': '*901*'
-      };
-      
-      const ussdPrefix = banks[bankCode] || '*322*';
-      const transactionAmount = Math.floor(amount);
-      const ussdCode = `${ussdPrefix}${transactionAmount}#`;
+      // Fallback to simulation for development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 Using simulated verification for development');
+        return this.simulatePaystackVerification(reference);
+      }
       
       return {
-        status: 'success',
-        data: {
-          ussd_code: ussdCode,
-          bank: bankCode,
-          amount: amount,
-          instructions: `Dial ${ussdCode} on your phone to complete payment`
-        }
+        status: false,
+        message: 'Payment verification failed. Please contact support.'
       };
-    } catch (error) {
-      console.error('USSD generation error:', error);
-      throw new Error('Failed to generate USSD code');
     }
   },
 
-  // Mobile money payment (for OPay, PalmPay apps)
-  async initializeMobileMoneyPayment(phoneNumber, amount, provider) {
-    try {
-      console.log('Initializing mobile money payment:', { phoneNumber, amount, provider });
-      
-      return new Promise((resolve) => {
-        setTimeout(() => {
+  // Simulated verification for development
+  simulatePaystackVerification(reference) {
+    console.log('🔄 Using SIMULATED Paystack verification');
+    
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        // Simulate successful verification 80% of the time
+        const isSuccess = Math.random() > 0.2;
+
+        if (isSuccess) {
           resolve({
-            status: 'success',
-            message: `Payment request sent to ${phoneNumber}`,
+            status: true,
+            message: 'Simulated verification successful',
             data: {
-              provider: provider,
-              phone_number: phoneNumber,
-              amount: amount,
-              transaction_id: `mm_${Date.now()}`,
-              instructions: `Check your ${provider} app to approve the payment`
+              status: 'success',
+              reference: reference,
+              amount: 500000, // 5000 Naira in kobo
+              gateway_response: 'Approved',
+              paid_at: new Date().toISOString(),
+              customer: {
+                email: 'test@example.com',
+                name: 'Test User'
+              },
+              metadata: {
+                lesson_id: 'lesson_123',
+                course_key: 'math101'
+              }
             }
           });
-        }, 1000);
+        } else {
+          resolve({
+            status: false,
+            message: 'Simulated verification failed'
+          });
+        }
+      }, 1500);
+    });
+  },
+
+  // Get Paystack banks list (for USSD and bank transfer)
+  async getPaystackBanks() {
+    try {
+      const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY;
+      
+      const response = await fetch('https://api.paystack.co/bank', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
+        }
       });
+
+      const data = await response.json();
+
+      if (data.status) {
+        return {
+          status: true,
+          banks: data.data
+        };
+      } else {
+        throw new Error('Failed to fetch banks');
+      }
     } catch (error) {
-      console.error('Mobile money initialization error:', error);
-      throw new Error('Failed to initialize mobile money payment');
+      console.error('Bank fetch error:', error);
+      
+      // Return demo banks for development
+      if (process.env.NODE_ENV === 'development') {
+        return {
+          status: true,
+          banks: [
+            { name: 'Access Bank', code: '044', slug: 'access-bank' },
+            { name: 'Guaranty Trust Bank', code: '058', slug: 'guaranty-trust-bank' },
+            { name: 'Zenith Bank', code: '057', slug: 'zenith-bank' },
+            { name: 'First Bank of Nigeria', code: '011', slug: 'first-bank-of-nigeria' },
+            { name: 'United Bank for Africa', code: '033', slug: 'united-bank-for-africa' }
+          ]
+        };
+      }
+      
+      throw error;
+    }
+  },
+
+  // Generate USSD payment code via Paystack
+  async generatePaystackUSSD(amount, bankCode) {
+    try {
+      const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY;
+      
+      const response = await fetch('https://api.paystack.co/transaction/initialize', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: amount * 100,
+          email: 'customer@example.com', // Customer email required
+          currency: 'NGN',
+          channels: ['ussd'],
+          metadata: {
+            bank_code: bankCode,
+            payment_type: 'ussd'
+          }
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.status) {
+        return {
+          status: true,
+          data: {
+            ussd_code: data.data.ussd_code,
+            reference: data.data.reference,
+            bank: bankCode,
+            amount: amount
+          }
+        };
+      } else {
+        throw new Error(data.message || 'Failed to generate USSD code');
+      }
+    } catch (error) {
+      console.error('USSD generation error:', error);
+      
+      // Simulated USSD for development
+      if (process.env.NODE_ENV === 'development') {
+        return this.simulateUSSDCode(amount, bankCode);
+      }
+      
+      throw error;
+    }
+  },
+
+  // Simulated USSD for development
+  simulateUSSDCode(amount, bankCode) {
+    const banks = {
+      '044': '*901*', // Access Bank
+      '058': '*737*', // GTBank
+      '057': '*966*', // Zenith Bank
+      '011': '*894*', // First Bank
+      '033': '*919*'  // UBA
+    };
+
+    const ussdPrefix = banks[bankCode] || '*322*';
+    const ussdCode = `${ussdPrefix}${amount}#`;
+
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({
+          status: 'success',
+          data: {
+            ussd_code: ussdCode,
+            bank: bankCode,
+            amount: amount,
+            instructions: `Dial ${ussdCode} on your phone to complete payment`
+          }
+        });
+      }, 1000);
+    });
+  },
+
+  // Create transfer recipient for bank transfer
+  async createTransferRecipient(bankCode, accountNumber, accountName) {
+    try {
+      const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY;
+      
+      const response = await fetch('https://api.paystack.co/transferrecipient', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'nuban',
+          name: accountName,
+          account_number: accountNumber,
+          bank_code: bankCode,
+          currency: 'NGN'
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.status) {
+        return {
+          status: true,
+          recipient_code: data.data.recipient_code
+        };
+      } else {
+        throw new Error(data.message || 'Failed to create recipient');
+      }
+    } catch (error) {
+      console.error('Recipient creation error:', error);
+      throw error;
     }
   }
 };
 
-// Payment gateway configuration
+// Payment configuration
 export const paymentConfig = {
   paystack: {
-    publicKey: 'pk_test_your_paystack_public_key', // Replace with actual key
-    secretKey: 'sk_test_your_paystack_secret_key'  // Replace with actual key
+    publicKey: process.env.REACT_APP_PAYSTACK_PUBLIC_KEY || 
+              'pk_test_your_paystack_public_key_here',
+    secretKey: process.env.REACT_APP_PAYSTACK_SECRET_KEY || 
+              'sk_test_your_paystack_secret_key_here'
   },
-  flutterwave: {
-    publicKey: 'FLWPUBK_TEST_your_flutterwave_public_key', // Replace with actual key
-    secretKey: 'FLWSECK_TEST_your_flutterwave_secret_key'  // Replace with actual key
-  },
-  supportedBanks: [
-    'OPAY', 'PALMPAY', 'GTB', 'ZENITH', 'ACCESS', 'UBA', 
-    'FIDELITY', 'FIRSTBANK', 'STERLING', 'UNION'
-  ],
-  supportedMobileMoney: ['OPAY', 'PALMPAY', 'CARBON', 'KUDA']
+  // Fallback config for development
+  development: {
+    simulatePayments: true,
+    testCards: [
+      { number: '4084084084084081', expiry: '12/30', cvv: '408' }, // Test Mastercard
+      { number: '5123450000000008', expiry: '12/30', cvv: '123' }, // Test Verve
+      { number: '5060666666666666666', expiry: '12/30', cvv: '123' } // Test Visa
+    ],
+    testBankAccounts: {
+      accountNumber: '0690000031',
+      accountName: 'Demo Account',
+      bankCode: '044' // Access Bank
+    }
+  }
 };
+
+// Helper function to check if we're in development mode
+export const isDevelopmentMode = () => {
+  return process.env.NODE_ENV === 'development' || 
+         window.location.hostname === 'localhost' ||
+         window.location.hostname.includes('netlify.app');
+};
+
+// Initialize payment gateway based on environment
+export const initializePaymentGateway = () => {
+  if (isDevelopmentMode()) {
+    console.log('🚧 Running in development mode - using simulated payments');
+    console.log('💳 Test cards available in paymentConfig.development.testCards');
+  } else {
+    console.log('🚀 Running in production mode - using real Paystack API');
+    
+    // Check if API keys are set
+    if (!process.env.REACT_APP_PAYSTACK_PUBLIC_KEY) {
+      console.warn('⚠️ Paystack public key not set. Set REACT_APP_PAYSTACK_PUBLIC_KEY in .env');
+    }
+    if (!process.env.REACT_APP_PAYSTACK_SECRET_KEY) {
+      console.warn('⚠️ Paystack secret key not set. Set REACT_APP_PAYSTACK_SECRET_KEY in .env');
+    }
+  }
+};
+
+// Initialize on import
+initializePaymentGateway();
 
 export default paymentService;
