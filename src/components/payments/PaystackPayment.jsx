@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './PaymentSelection.css'; // Save the CSS above as this file
+import './PaystackPayment.css'; // Save the CSS above as this file
 
 const PaymentSelection = ({ lesson, onProceed, onCancel }) => {
   const [selectedGateway, setSelectedGateway] = useState(null);
