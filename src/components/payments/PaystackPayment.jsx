@@ -85,3 +85,4 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
     </Button>
   );
 };
+export default PaystackPayment;
