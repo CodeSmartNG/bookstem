@@ -22,6 +22,7 @@ import Resources from './components/Resources';
 import Careers from './components/Careers';
 import Support from './components/Support';
 import PaymentSuccess from "./pages/PaymentSuccess";
+import PaymentCallback from "./pages/PaymentCallback";
 
 import { 
   initializeStorage, 
@@ -211,6 +212,14 @@ function App() {
     const token = urlParams.get('token');
     if (token) {
       handleEmailConfirmation(token);
+    }
+
+    // Check for Paystack callback
+    const reference = urlParams.get('reference');
+    const trxref = urlParams.get('trxref');
+    if (reference || trxref) {
+      console.log('🔗 Paystack callback detected:', { reference, trxref });
+      setCurrentView('payment-callback');
     }
   }, []);
 
@@ -417,6 +426,17 @@ function App() {
         return false;
       }
 
+      // Get lesson details
+      const courses = getCourses();
+      const course = courses[courseKey];
+      const lesson = course?.lessons?.find(l => l.id === lessonId);
+      
+      if (!lesson) {
+        setMessage('Lesson not found');
+        return false;
+      }
+
+      // For demo, use simulated purchase
       const success = await purchaseLesson(currentUser.id, courseKey, lessonId);
       if (success) {
         // Refresh user data to reflect the purchase
@@ -436,6 +456,57 @@ function App() {
       }
     } catch (error) {
       console.error('Error purchasing lesson:', error);
+      setMessage('❌ Error processing payment: ' + error.message);
+      return false;
+    }
+  };
+
+  // Handle Paystack payment
+  const handlePaystackPayment = async (courseKey, lessonId, email, name) => {
+    try {
+      if (!currentUser) {
+        setMessage('Please log in to make a payment');
+        return false;
+      }
+
+      // Get lesson details
+      const courses = getCourses();
+      const course = courses[courseKey];
+      const lesson = course?.lessons?.find(l => l.id === lessonId);
+      
+      if (!lesson) {
+        setMessage('Lesson not found');
+        return false;
+      }
+
+      // Store payment info for callback
+      localStorage.setItem('paystack_lesson_id', lessonId);
+      localStorage.setItem('paystack_course_key', courseKey);
+      localStorage.setItem('paystack_amount', lesson.price);
+      localStorage.setItem('paystack_student_id', currentUser.id);
+
+      // In a real implementation, this would call Paystack API
+      // For now, simulate payment and redirect to callback
+      const reference = `paystack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('paystack_reference', reference);
+
+      // Simulate redirect to Paystack (in real app, this would be Paystack URL)
+      setTimeout(() => {
+        // Simulate successful payment
+        const success = Math.random() > 0.3; // 70% success rate
+        
+        if (success) {
+          // Update URL with reference (simulating Paystack callback)
+          window.history.pushState({}, '', `/?view=payment-callback&reference=${reference}&trxref=${reference}`);
+          setCurrentView('payment-callback');
+        } else {
+          setMessage('❌ Payment failed. Please try again.');
+        }
+      }, 1000);
+
+      return true;
+    } catch (error) {
+      console.error('Paystack payment error:', error);
       setMessage('❌ Error processing payment: ' + error.message);
       return false;
     }
@@ -584,6 +655,8 @@ function App() {
           );
         case 'payment-success':
           return <PaymentSuccess setCurrentView={setCurrentView} />;
+        case 'payment-callback':
+          return <PaymentCallback setCurrentView={setCurrentView} />;
         case 'login':
         default:
           return (
@@ -639,6 +712,8 @@ function App() {
         return <Support />;
       case 'payment-success':
         return <PaymentSuccess setCurrentView={setCurrentView} />;
+      case 'payment-callback':
+        return <PaymentCallback setCurrentView={setCurrentView} />;
       case 'admin-courses':
         if (isAdmin) {
           return <AdminCourseManagement currentUser={currentUser} />;
@@ -717,12 +792,15 @@ function App() {
               onLessonPurchase={handleLessonPurchase}
               onCheckLessonAccess={checkLessonAccess}
               onGetTeacherContact={getTeacherContactUrl}
+              onPaystackPayment={handlePaystackPayment}
             />
           );
         case 'discussion':
           return <DiscussionForum currentUser={currentUser} />;
         case 'payment-success':
           return <PaymentSuccess setCurrentView={setCurrentView} />;
+        case 'payment-callback':
+          return <PaymentCallback setCurrentView={setCurrentView} />;
         case 'dashboard':
         default:
           return (
@@ -758,6 +836,8 @@ function App() {
           );
         case 'payment-success':
           return <PaymentSuccess setCurrentView={setCurrentView} />;
+        case 'payment-callback':
+          return <PaymentCallback setCurrentView={setCurrentView} />;
         case 'dashboard':
         default:
           return <TeacherDashboard currentUser={currentUser} setCurrentUser={updateCurrentUser} />;
@@ -770,6 +850,8 @@ function App() {
       switch(currentView) {
         case 'payment-success':
           return <PaymentSuccess setCurrentView={setCurrentView} />;
+        case 'payment-callback':
+          return <PaymentCallback setCurrentView={setCurrentView} />;
         case 'dashboard':
         default:
           return <AdminDashboard currentUser={currentUser} setCurrentView={setCurrentView} />;
