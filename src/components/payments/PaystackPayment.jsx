@@ -6,15 +6,18 @@ import './PaystackPayment.css';
 const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
-  const [paymentStep, setPaymentStep] = useState('selection'); // selection, processing, success, failed
-  const [selectedMethod, setSelectedMethod] = useState('card'); // card, transfer, ussd
+  const [paymentStep, setPaymentStep] = useState('init');
   const [cardDetails, setCardDetails] = useState({
     cardNumber: '',
     expiryDate: '',
     cvv: '',
-    name: ''
+    name: '',
+    email: student?.email || ''
   });
 
+  // Paystack Configuration
+  const PAYSTACK_PUBLIC_KEY = process.env.REACT_APP_PAYSTACK_PUBLIC_KEY || 'pk_test_YOUR_PUBLIC_KEY';
+  
   // Handle card input changes
   const handleCardInputChange = (e) => {
     const { name, value } = e.target;
@@ -37,9 +40,7 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
 
   // Validate card details
   const validateCardDetails = () => {
-    if (selectedMethod !== 'card') return true;
-    
-    const { cardNumber, expiryDate, cvv, name } = cardDetails;
+    const { cardNumber, expiryDate, cvv, name, email } = cardDetails;
     
     if (!cardNumber || cardNumber.replace(/\s/g, '').length !== 16) {
       setError('Please enter a valid 16-digit card number');
@@ -61,56 +62,69 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
       return false;
     }
     
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please enter a valid email address');
+      return false;
+    }
+    
     return true;
   };
 
-  // Simulate Paystack payment
-  const simulatePayment = () => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        let successRate = 0.8; // 80% success rate
-        
-        if (selectedMethod === 'transfer') {
-          successRate = 0.9; // 90% for bank transfer
-        } else if (selectedMethod === 'ussd') {
-          successRate = 0.95; // 95% for USSD
-        }
-        
-        const isSuccess = Math.random() > (1 - successRate);
-        
-        if (isSuccess) {
-          resolve({
-            reference: `PAYSTACK_${selectedMethod.toUpperCase()}_${Date.now()}`,
-            transaction: `TXN_${Date.now()}`,
-            status: 'success',
-            message: `Payment via ${selectedMethod} successful`,
-            method: selectedMethod,
-            amount: lesson.price
-          });
-        } else {
-          let errorMessage = 'Payment failed. Please try again.';
-          if (selectedMethod === 'card') {
-            errorMessage = 'Card payment declined. Please check your card details.';
-          } else if (selectedMethod === 'transfer') {
-            errorMessage = 'Bank transfer failed. Please try again.';
-          } else if (selectedMethod === 'ussd') {
-            errorMessage = 'USSD transaction failed. Please try again.';
-          }
-          reject(new Error(errorMessage));
-        }
-      }, 3000);
+  // REAL Paystack Payment Integration
+  const initializePaystackPayment = async () => {
+    if (!window.PaystackPop) {
+      setError('Paystack is not loaded. Please try again.');
+      return;
+    }
+
+    const paystack = window.PaystackPop.setup({
+      key: PAYSTACK_PUBLIC_KEY,
+      email: cardDetails.email,
+      amount: lesson.price * 100, // Paystack expects amount in kobo
+      currency: 'NGN',
+      ref: `PAYSTACK_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      metadata: {
+        lesson_id: lesson.id,
+        lesson_title: lesson.title,
+        course_key: lesson.courseKey,
+        student_id: student.id,
+        student_name: student.name
+      },
+      callback: function(response) {
+        // Payment successful
+        console.log('Paystack payment successful:', response);
+        handlePaymentSuccess({
+          reference: response.reference,
+          transaction: response.transaction,
+          status: 'success',
+          message: 'Payment successful via Paystack',
+          amount: lesson.price,
+          gateway: 'paystack'
+        });
+      },
+      onClose: function() {
+        // User closed the payment modal
+        console.log('Paystack payment modal closed');
+        setIsProcessing(false);
+        setPaymentStep('init');
+        setError('Payment was cancelled by user');
+      }
     });
+
+    paystack.openIframe();
   };
 
+  // Handle payment success
   const handlePaymentSuccess = (reference) => {
     setIsProcessing(false);
     setPaymentStep('success');
     
+    // Call success callback
     setTimeout(() => {
       onSuccess({
         paymentId: reference.reference,
         gateway: 'paystack',
-        method: reference.method,
+        method: 'card',
         amount: lesson.price,
         lessonId: lesson.id,
         studentId: student.id,
@@ -120,6 +134,7 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
     }, 1500);
   };
 
+  // Handle payment error
   const handlePaymentError = (error) => {
     setIsProcessing(false);
     setPaymentStep('failed');
@@ -127,11 +142,12 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
     onError(error);
   };
 
+  // Main payment handler
   const handlePaymentClick = async () => {
     if (isProcessing) return;
     
-    // Validate card details if card payment selected
-    if (selectedMethod === 'card' && !validateCardDetails()) {
+    // Validate card details
+    if (!validateCardDetails()) {
       return;
     }
     
@@ -140,23 +156,69 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
     setError(null);
     
     try {
-      const paymentResult = await simulatePayment();
-      handlePaymentSuccess(paymentResult);
+      // Initialize real Paystack payment
+      await initializePaystackPayment();
     } catch (err) {
       handlePaymentError(err);
     }
   };
 
+  // Alternative: Load Paystack script dynamically
+  const loadPaystackScript = () => {
+    return new Promise((resolve, reject) => {
+      if (window.PaystackPop) {
+        resolve();
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://js.paystack.co/v1/inline.js';
+      script.async = true;
+      script.onload = () => {
+        console.log('Paystack script loaded');
+        resolve();
+      };
+      script.onerror = () => {
+        reject(new Error('Failed to load Paystack script'));
+      };
+      document.head.appendChild(script);
+    });
+  };
+
+  // Initialize payment with script loading
+  const handlePaymentWithScript = async () => {
+    if (isProcessing) return;
+    
+    if (!validateCardDetails()) {
+      return;
+    }
+    
+    setIsProcessing(true);
+    setPaymentStep('processing');
+    setError(null);
+    
+    try {
+      // Load Paystack script if not already loaded
+      await loadPaystackScript();
+      
+      // Initialize Paystack payment
+      await initializePaystackPayment();
+    } catch (err) {
+      console.error('Payment initialization error:', err);
+      handlePaymentError(err);
+    }
+  };
+
   const handleRetryPayment = () => {
-    setPaymentStep('selection');
+    setPaymentStep('init');
     setError(null);
   };
 
   const handleCancelPayment = () => {
     setIsProcessing(false);
-    setPaymentStep('selection');
+    setPaymentStep('init');
     setError(null);
-    setCardDetails({ cardNumber: '', expiryDate: '', cvv: '', name: '' });
+    setCardDetails({ cardNumber: '', expiryDate: '', cvv: '', name: '', email: student?.email || '' });
     onClose();
   };
 
@@ -182,17 +244,12 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
 
   // Payment processing screen
   if (paymentStep === 'processing') {
-    const methodText = selectedMethod === 'card' ? 'Card' : 
-                      selectedMethod === 'transfer' ? 'Bank Transfer' : 'USSD';
-    
     return (
       <div className="payment-processing">
         <Loader size="large" />
-        <h3>Processing {methodText} Payment...</h3>
-        <p>Please wait while we process your payment.</p>
-        <p className="processing-note">
-          {selectedMethod === 'ussd' ? 'Check your phone for USSD prompt' : 'Do not close this window'}
-        </p>
+        <h3>Processing Payment...</h3>
+        <p>Please wait while we initialize Paystack payment.</p>
+        <p className="processing-note">You will be redirected to Paystack secure payment page.</p>
       </div>
     );
   }
@@ -222,7 +279,7 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
     );
   }
 
-  // Payment selection screen (initial screen)
+  // Initial payment screen
   return (
     <div className="paystack-payment">
       {error && (
@@ -232,7 +289,7 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
       )}
       
       <div className="payment-header">
-        <h2>Pay with Paystack</h2>
+        <h2>💳 Pay with Paystack</h2>
         <p className="subtitle">Secure payment powered by Paystack</p>
       </div>
 
@@ -252,204 +309,105 @@ const PaystackPayment = ({ lesson, student, onSuccess, onClose, onError }) => {
         </div>
       </div>
 
-      <div className="payment-methods">
-        <h3>Select Payment Method</h3>
-        <div className="methods-container">
-          <div 
-            className={`payment-option ${selectedMethod === 'card' ? 'selected' : ''}`}
-            onClick={() => setSelectedMethod('card')}
-            data-method="card"
-          >
-            <div className="option-icon">💳</div>
-            <div className="option-content">
-              <h4>Card Payment</h4>
-              <p>Pay with debit/credit card</p>
-            </div>
-            <div className="option-check">
-              {selectedMethod === 'card' && '✓'}
-            </div>
+      <div className="card-details">
+        <h4>Enter Your Payment Details</h4>
+        <div className="form-group">
+          <label>Email Address *</label>
+          <input 
+            type="email" 
+            name="email"
+            placeholder="you@example.com" 
+            className="form-input"
+            value={cardDetails.email}
+            onChange={handleCardInputChange}
+            required
+          />
+        </div>
+        <div className="form-group">
+          <label>Cardholder Name *</label>
+          <input 
+            type="text" 
+            name="name"
+            placeholder="John Doe" 
+            className="form-input"
+            value={cardDetails.name}
+            onChange={handleCardInputChange}
+            required
+          />
+        </div>
+        <div className="form-group">
+          <label>Card Number *</label>
+          <input 
+            type="text" 
+            name="cardNumber"
+            placeholder="1234 5678 9012 3456" 
+            className="form-input"
+            value={cardDetails.cardNumber}
+            onChange={handleCardInputChange}
+            maxLength="19"
+            required
+          />
+        </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label>Expiry Date (MM/YY) *</label>
+            <input 
+              type="text" 
+              name="expiryDate"
+              placeholder="MM/YY" 
+              className="form-input"
+              value={cardDetails.expiryDate}
+              onChange={handleCardInputChange}
+              maxLength="5"
+              required
+            />
           </div>
-          
-          <div 
-            className={`payment-option ${selectedMethod === 'transfer' ? 'selected' : ''}`}
-            onClick={() => setSelectedMethod('transfer')}
-            data-method="transfer"
-          >
-            <div className="option-icon">🏦</div>
-            <div className="option-content">
-              <h4>Bank Transfer</h4>
-              <p>Transfer to our bank account</p>
-            </div>
-            <div className="option-check">
-              {selectedMethod === 'transfer' && '✓'}
-            </div>
-          </div>
-          
-          <div 
-            className={`payment-option ${selectedMethod === 'ussd' ? 'selected' : ''}`}
-            onClick={() => setSelectedMethod('ussd')}
-            data-method="ussd"
-          >
-            <div className="option-icon">📱</div>
-            <div className="option-content">
-              <h4>USSD Payment</h4>
-              <p>Pay via USSD on your phone</p>
-            </div>
-            <div className="option-check">
-              {selectedMethod === 'ussd' && '✓'}
-            </div>
+          <div className="form-group">
+            <label>CVV *</label>
+            <input 
+              type="text" 
+              name="cvv"
+              placeholder="123" 
+              className="form-input"
+              value={cardDetails.cvv}
+              onChange={handleCardInputChange}
+              maxLength="3"
+              required
+            />
           </div>
         </div>
       </div>
-
-      {/* Card Payment Details */}
-      {selectedMethod === 'card' && (
-        <div className="payment-details card-details">
-          <h4>Enter Card Details</h4>
-          <div className="card-form">
-            <div className="form-group">
-              <label>Cardholder Name</label>
-              <input 
-                type="text" 
-                name="name"
-                placeholder="John Doe" 
-                className="form-input"
-                value={cardDetails.name}
-                onChange={handleCardInputChange}
-              />
-            </div>
-            <div className="form-group">
-              <label>Card Number</label>
-              <input 
-                type="text" 
-                name="cardNumber"
-                placeholder="1234 5678 9012 3456" 
-                className="form-input"
-                value={cardDetails.cardNumber}
-                onChange={handleCardInputChange}
-                maxLength="19"
-              />
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Expiry Date</label>
-                <input 
-                  type="text" 
-                  name="expiryDate"
-                  placeholder="MM/YY" 
-                  className="form-input"
-                  value={cardDetails.expiryDate}
-                  onChange={handleCardInputChange}
-                  maxLength="5"
-                />
-              </div>
-              <div className="form-group">
-                <label>CVV</label>
-                <input 
-                  type="text" 
-                  name="cvv"
-                  placeholder="123" 
-                  className="form-input"
-                  value={cardDetails.cvv}
-                  onChange={handleCardInputChange}
-                  maxLength="3"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bank Transfer Details */}
-      {selectedMethod === 'transfer' && (
-        <div className="payment-details transfer-details">
-          <h4>Bank Transfer Details</h4>
-          <div className="transfer-info">
-            <div className="account-card">
-              <div className="account-item">
-                <span className="label">Account Name:</span>
-                <span className="value">BOOKSTEM LEARNING</span>
-              </div>
-              <div className="account-item">
-                <span className="label">Account Number:</span>
-                <span className="value">0123456789</span>
-              </div>
-              <div className="account-item">
-                <span className="label">Bank Name:</span>
-                <span className="value">ACCESS BANK</span>
-              </div>
-            </div>
-            <div className="transfer-instructions">
-              <h5>Instructions:</h5>
-              <ol>
-                <li>Transfer <strong>₦{lesson.price.toLocaleString()}</strong> to the account above</li>
-                <li>Use your Student ID <strong>({student.id})</strong> as payment reference</li>
-                <li>Click the button below after completing the transfer</li>
-              </ol>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* USSD Payment Details */}
-      {selectedMethod === 'ussd' && (
-        <div className="payment-details ussd-details">
-          <h4>USSD Payment Instructions</h4>
-          <div className="ussd-instructions">
-            <div className="ussd-step">
-              <div className="step-number">1</div>
-              <div className="step-content">
-                <p>Dial <code>*966*000*{lesson.price}#</code> on your phone</p>
-              </div>
-            </div>
-            <div className="ussd-step">
-              <div className="step-number">2</div>
-              <div className="step-content">
-                <p>Select your bank and follow the prompts</p>
-              </div>
-            </div>
-            <div className="ussd-step">
-              <div className="step-number">3</div>
-              <div className="step-content">
-                <p>Enter your PIN to complete payment</p>
-              </div>
-            </div>
-            <div className="ussd-step">
-              <div className="step-number">4</div>
-              <div className="step-content">
-                <p>Return to this page after successful payment</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+      
       <Button
-        onClick={handlePaymentClick}
+        onClick={handlePaymentWithScript}
         disabled={isProcessing}
-        className={`payment-btn ${selectedMethod}-btn ${isProcessing ? 'processing' : ''}`}
+        className={`payment-btn paystack-btn ${isProcessing ? 'processing' : ''}`}
         fullWidth
       >
         {isProcessing ? (
           <>
             <Loader size="small" />
-            Processing...
+            Initializing Payment...
           </>
-        ) : selectedMethod === 'ussd' ? (
-          'Confirm USSD Payment'
-        ) : selectedMethod === 'transfer' ? (
-          'I Have Made Transfer'
         ) : (
-          `Pay ₦${lesson.price.toLocaleString()}`
+          `Pay ₦${lesson.price.toLocaleString()} with Paystack`
         )}
       </Button>
       
-      <div className="paystack-badge">
-        <span>🔐 Powered by Paystack</span>
+      <div className="paystack-security">
+        <div className="security-badge">
+          <span>🔐 Powered by Paystack</span>
+        </div>
+        <div className="security-features">
+          <span>✅ PCI DSS Compliant</span>
+          <span>✅ 3D Secure</span>
+          <span>✅ SSL Encrypted</span>
+        </div>
       </div>
       
       <p className="payment-note">
-        🔒 100% Secure Payment • SSL Encrypted • PCI DSS Compliant
+        You will be redirected to Paystack's secure payment page to complete your transaction.
+        Your card details are never stored on our servers.
       </p>
 
       <div className="payment-footer">
