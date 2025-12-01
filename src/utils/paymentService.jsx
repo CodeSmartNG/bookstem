@@ -7,15 +7,15 @@ export const paymentService = {
     try {
       const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY || 
                                   'sk_test_your_paystack_secret_key_here'; // Fallback for demo
-      
+
       console.log('🔐 Initializing REAL Paystack payment:', { 
         email, 
         amount, 
         metadata 
       });
 
-      // REAL API call to Paystack
-      const response = await fetch(' https://paystack.shop/pay/8wikapcy3c ', {
+      // ✅ CORRECTED: Use Paystack API URL, NOT payment page URL
+      const response = await fetch('https://api.paystack.co/transaction/initialize', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -26,7 +26,7 @@ export const paymentService = {
           amount: amount * 100, // Convert to kobo
           currency: 'NGN',
           metadata: metadata,
-          callback_url: `${window.location.origin}/payment-success`,
+          callback_url: `${window.location.origin}/payment-callback`, // Redirect back to your site
           channels: ['card', 'bank', 'ussd', 'qr'] // Nigerian payment channels
         })
       });
@@ -39,7 +39,7 @@ export const paymentService = {
           status: true,
           message: 'Payment initialized successfully',
           data: {
-            authorization_url: data.data.authorization_url,
+            authorization_url: data.data.authorization_url, // This is the payment page URL
             access_code: data.data.access_code,
             reference: data.data.reference
           }
@@ -50,30 +50,58 @@ export const paymentService = {
       }
     } catch (error) {
       console.error('❌ Paystack API error:', error);
-      
+
       // Fallback to simulation if API fails (for demo/testing)
       if (process.env.NODE_ENV === 'development') {
         console.log('🔄 Using simulated Paystack payment for development');
         return this.simulatePaystackPayment(email, amount, metadata);
       }
-      
+
       throw new Error('Failed to connect to payment gateway. Please try again.');
+    }
+  },
+
+  // ✅ NEW: Direct payment with your payment link
+  async initiateDirectPayment(paymentData = {}) {
+    try {
+      console.log('🔗 Initiating direct Paystack payment');
+      
+      // Your payment link: https://paystack.shop/pay/8wikapcy3c
+      // Store payment data for verification
+      localStorage.setItem('paystack_payment_data', JSON.stringify({
+        ...paymentData,
+        timestamp: new Date().toISOString()
+      }));
+      
+      // Return the direct payment link
+      return {
+        status: true,
+        message: 'Payment link ready',
+        data: {
+          payment_url: 'https://paystack.shop/pay/8wikapcy3c', // Your payment link
+          reference: `direct_${Date.now()}`,
+          amount: paymentData.amount || 0
+        }
+      };
+    } catch (error) {
+      console.error('Direct payment error:', error);
+      throw new Error('Failed to create payment link');
     }
   },
 
   // Simulated Paystack for development/testing
   simulatePaystackPayment(email, amount, metadata = {}) {
     console.log('🔄 Using SIMULATED Paystack payment');
-    
+
     return new Promise((resolve) => {
       setTimeout(() => {
         const reference = `paystack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
         resolve({
           status: true,
           message: 'Simulated payment initialized',
           data: {
-            authorization_url: `https://simulated-paystack.com/pay/${reference}`,
+            authorization_url: 'https://paystack.shop/pay/8wikapcy3c', // Your payment link for simulation
             access_code: `simulated_access_${reference}`,
             reference: reference
           }
@@ -87,7 +115,7 @@ export const paymentService = {
     try {
       const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY || 
                                   'sk_test_your_paystack_secret_key_here';
-      
+
       console.log('🔍 Verifying REAL Paystack payment:', reference);
 
       const response = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
@@ -124,13 +152,13 @@ export const paymentService = {
       }
     } catch (error) {
       console.error('❌ Paystack verification error:', error);
-      
+
       // Fallback to simulation for development
       if (process.env.NODE_ENV === 'development') {
         console.log('🔄 Using simulated verification for development');
         return this.simulatePaystackVerification(reference);
       }
-      
+
       return {
         status: false,
         message: 'Payment verification failed. Please contact support.'
@@ -138,10 +166,30 @@ export const paymentService = {
     }
   },
 
+  // ✅ NEW: Simple redirect to your payment link
+  redirectToPaymentLink(paymentData = {}) {
+    // Store payment data
+    const paymentInfo = {
+      ...paymentData,
+      timestamp: new Date().toISOString(),
+      reference: `link_${Date.now()}`
+    };
+    
+    localStorage.setItem('paystack_payment_info', JSON.stringify(paymentInfo));
+    
+    // Redirect to your Paystack payment link
+    window.location.href = 'https://paystack.shop/pay/8wikapcy3c';
+    
+    return {
+      success: true,
+      message: 'Redirecting to payment page...'
+    };
+  },
+
   // Simulated verification for development
   simulatePaystackVerification(reference) {
     console.log('🔄 Using SIMULATED Paystack verification');
-    
+
     return new Promise((resolve) => {
       setTimeout(() => {
         // Simulate successful verification 80% of the time
@@ -181,7 +229,7 @@ export const paymentService = {
   async getPaystackBanks() {
     try {
       const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY;
-      
+
       const response = await fetch('https://api.paystack.co/bank', {
         method: 'GET',
         headers: {
@@ -201,7 +249,7 @@ export const paymentService = {
       }
     } catch (error) {
       console.error('Bank fetch error:', error);
-      
+
       // Return demo banks for development
       if (process.env.NODE_ENV === 'development') {
         return {
@@ -215,7 +263,7 @@ export const paymentService = {
           ]
         };
       }
-      
+
       throw error;
     }
   },
@@ -224,7 +272,7 @@ export const paymentService = {
   async generatePaystackUSSD(amount, bankCode) {
     try {
       const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY;
-      
+
       const response = await fetch('https://api.paystack.co/transaction/initialize', {
         method: 'POST',
         headers: {
@@ -260,12 +308,12 @@ export const paymentService = {
       }
     } catch (error) {
       console.error('USSD generation error:', error);
-      
+
       // Simulated USSD for development
       if (process.env.NODE_ENV === 'development') {
         return this.simulateUSSDCode(amount, bankCode);
       }
-      
+
       throw error;
     }
   },
@@ -302,7 +350,7 @@ export const paymentService = {
   async createTransferRecipient(bankCode, accountNumber, accountName) {
     try {
       const PAYSTACK_SECRET_KEY = process.env.REACT_APP_PAYSTACK_SECRET_KEY;
-      
+
       const response = await fetch('https://api.paystack.co/transferrecipient', {
         method: 'POST',
         headers: {
@@ -341,7 +389,9 @@ export const paymentConfig = {
     publicKey: process.env.REACT_APP_PAYSTACK_PUBLIC_KEY || 
               'pk_test_your_paystack_public_key_here',
     secretKey: process.env.REACT_APP_PAYSTACK_SECRET_KEY || 
-              'sk_test_your_paystack_secret_key_here'
+              'sk_test_your_paystack_secret_key_here',
+    // ✅ ADD YOUR PAYMENT LINK HERE
+    paymentLink: 'https://paystack.shop/pay/8wikapcy3c' // Your payment link
   },
   // Fallback config for development
   development: {
@@ -366,21 +416,31 @@ export const isDevelopmentMode = () => {
          window.location.hostname.includes('netlify.app');
 };
 
+// ✅ NEW: Simple function to use your payment link
+export const usePaystackPaymentLink = (paymentData = {}) => {
+  // Store payment info
+  const paymentInfo = {
+    ...paymentData,
+    timestamp: new Date().toISOString(),
+    reference: `paylink_${Date.now()}`
+  };
+  
+  localStorage.setItem('current_payment', JSON.stringify(paymentInfo));
+  
+  // Redirect to your payment link
+  window.location.href = paymentConfig.paystack.paymentLink;
+  
+  return true;
+};
+
 // Initialize payment gateway based on environment
 export const initializePaymentGateway = () => {
   if (isDevelopmentMode()) {
     console.log('🚧 Running in development mode - using simulated payments');
-    console.log('💳 Test cards available in paymentConfig.development.testCards');
+    console.log('🔗 Payment link:', paymentConfig.paystack.paymentLink);
   } else {
-    console.log('🚀 Running in production mode - using real Paystack API');
-    
-    // Check if API keys are set
-    if (!process.env.REACT_APP_PAYSTACK_PUBLIC_KEY) {
-      console.warn('⚠️ Paystack public key not set. Set REACT_APP_PAYSTACK_PUBLIC_KEY in .env');
-    }
-    if (!process.env.REACT_APP_PAYSTACK_SECRET_KEY) {
-      console.warn('⚠️ Paystack secret key not set. Set REACT_APP_PAYSTACK_SECRET_KEY in .env');
-    }
+    console.log('🚀 Running in production mode');
+    console.log('🔗 Payment link:', paymentConfig.paystack.paymentLink);
   }
 };
 
