@@ -15,7 +15,7 @@ export const paymentService = {
       });
 
       // REAL API call to Paystack
-      const response = await fetch('https://api.paystack.co/transaction/initialize', {
+      const response = await fetch(' https://paystack.shop/pay/8wikapcy3c ', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
