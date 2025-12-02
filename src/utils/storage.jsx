@@ -257,6 +257,193 @@ export const initializeStorage = () => {
   }
 };
 
+
+
+// Add these functions to your storage.js file before the export default section
+
+// ==================== ADMIN COURSE MANAGEMENT FUNCTIONS ====================
+export const getAllCoursesForAdmin = () => {
+  return getCourses();
+};
+
+export const getCourseDetailsForAdmin = (courseKey) => {
+  const courses = getCourses();
+  const course = courses[courseKey];
+
+  if (!course) {
+    throw new Error('Course not found');
+  }
+
+  const users = getUsers();
+  const teacher = users[course.teacherId];
+
+  return {
+    ...course,
+    teacherInfo: teacher ? {
+      name: teacher.name,
+      email: teacher.email,
+      specialization: teacher.specialization,
+      isApproved: teacher.isApproved
+    } : null
+  };
+};
+
+export const deleteCourseAsAdmin = (courseKey) => {
+  const courses = getCourses();
+  if (!courses[courseKey]) {
+    throw new Error('Course not found');
+  }
+
+  const teacherId = courses[courseKey].teacherId;
+  if (teacherId) {
+    const users = getUsers();
+    const teacher = users[teacherId];
+    if (teacher && teacher.courses) {
+      teacher.courses = teacher.courses.filter(course => course !== courseKey);
+      saveUsers(users);
+    }
+  }
+
+  const students = getStudents();
+  const updatedStudents = students.map(student => ({
+    ...student,
+    enrolledCourses: student.enrolledCourses?.filter(course => course !== courseKey) || [],
+    completedCourses: student.completedCourses?.filter(course => course !== courseKey) || [],
+    progress: Object.fromEntries(
+      Object.entries(student.progress || {}).filter(([key]) => key !== courseKey)
+    )
+  }));
+  saveStudents(updatedStudents);
+
+  const updatedCourses = { ...courses };
+  delete updatedCourses[courseKey];
+  saveCourses(updatedCourses);
+
+  console.log(`🗑 Admin deleted course: ${courseKey}`);
+  return true;
+};
+
+export const getTeacherCoursesForAdmin = (teacherId) => {
+  const courses = getCourses();
+  const teacherCourses = Object.fromEntries(
+    Object.entries(courses).filter(([key, course]) => course.teacherId === teacherId)
+  );
+
+  return teacherCourses;
+};
+
+// ==================== TEACHER COURSE FUNCTIONS ====================
+export const getTeacherCourses = (teacherId) => {
+  const courses = getCourses();
+
+  if (!teacherId) {
+    console.log('No teacher ID found, returning all courses for demo');
+    return courses;
+  }
+
+  return Object.fromEntries(
+    Object.entries(courses).filter(([key, course]) => course.teacherId === teacherId)
+  );
+};
+
+export const getTeacherStats = (teacherId) => {
+  const teacherCourses = getTeacherCourses(teacherId);
+  const allStudents = getStudents();
+
+  const totalCourses = Object.keys(teacherCourses).length;
+  const totalLessons = Object.values(teacherCourses).reduce(
+    (acc, course) => acc + (course.lessons?.length || 0), 0
+  );
+
+  const teacherCourseKeys = Object.keys(teacherCourses);
+  const totalStudents = allStudents.filter(student =>
+    student.enrolledCourses?.some(courseKey =>
+      teacherCourseKeys.includes(courseKey)
+    )
+  ).length;
+
+  let totalCompletions = 0;
+  let totalPossibleCompletions = 0;
+
+  allStudents.forEach(student => {
+    teacherCourseKeys.forEach(courseKey => {
+      if (student.enrolledCourses?.includes(courseKey)) {
+        totalPossibleCompletions++;
+        if (student.completedCourses?.includes(courseKey)) {
+          totalCompletions++;
+        }
+      }
+    });
+  });
+
+  const averageCompletionRate = totalPossibleCompletions > 0
+    ? Math.round((totalCompletions / totalPossibleCompletions) * 100)
+    : 0;
+
+  const paymentStats = getTeacherPaymentStats(teacherId);
+
+  return {
+    totalCourses,
+    totalLessons,
+    totalStudents,
+    averageCompletionRate,
+    totalEarnings: paymentStats.totalEarnings,
+    availableBalance: paymentStats.availableBalance,
+    monthlyEarnings: paymentStats.monthlyEarnings,
+    totalSales: paymentStats.totalSales,
+    recentActivity: [
+      {
+        type: 'course',
+        title: 'New Course Created',
+        description: 'You created a new course',
+        date: new Date().toISOString()
+      },
+      {
+        type: 'lesson',
+        title: 'Lesson Updated',
+        description: 'You updated a lesson',
+        date: new Date(Date.now() - 86400000).toISOString()
+      }
+    ]
+  };
+};
+
+export const getCurrentTeacherId = () => {
+  const currentUser = getCurrentUser();
+  return currentUser && currentUser.role === 'teacher' ? currentUser.id : null;
+};
+
+export const addNewCourse = (courseData) => {
+  const courses = getCourses();
+  const courseKey = courseData.key || generateCourseKey(courseData.title);
+
+  if (courses[courseKey]) {
+    throw new Error('Course with this key already exists');
+  }
+
+  const teacherId = getCurrentTeacherId();
+
+  courses[courseKey] = {
+    ...courseData,
+    key: courseKey,
+    teacherId: teacherId,
+    lessons: courseData.lessons || [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  localStorage.setItem(COURSES_KEY, JSON.stringify(courses));
+  return courseKey;
+};
+
+const generateCourseKey = (title) => {
+  return title.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+};
+
+
+
+
+
 // ==================== TEACHER WALLET FUNCTIONS ====================
 export const initializeTeacherWallets = () => {
   try {
@@ -1314,6 +1501,18 @@ export default {
   getPlatformStats,
   deleteUser,
   updateUser,
+
+
+
+
+  getAllCoursesForAdmin,
+  getCourseDetailsForAdmin,
+  deleteCourseAsAdmin,
+  getTeacherCoursesForAdmin,
+  getTeacherCourses,
+  getTeacherStats,
+  getCurrentTeacherId,
+  addNewCourse
   // General functions
   debugStorage
 };
