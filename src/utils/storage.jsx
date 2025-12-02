@@ -257,6 +257,373 @@ export const initializeStorage = () => {
   }
 };
 
+
+
+
+
+// Add these functions to your storage.js file before the export default section
+
+// ==================== TEACHER MANAGEMENT FUNCTIONS ====================
+export const getPendingTeachers = () => {
+  const teachers = getAllTeachers();
+  return teachers.filter(teacher => !teacher.isApproved);
+};
+
+export const getApprovedTeachers = () => {
+  const teachers = getAllTeachers();
+  return teachers.filter(teacher => teacher.isApproved);
+};
+
+export const approveTeacher = (teacherId) => {
+  const users = getUsers();
+
+  if (!users[teacherId] || users[teacherId].role !== 'teacher') {
+    throw new Error('Teacher not found');
+  }
+
+  users[teacherId].isApproved = true;
+  users[teacherId].approvedDate = new Date().toISOString();
+
+  saveUsers(users);
+  console.log('✅ Teacher approved:', teacherId);
+  return users[teacherId];
+};
+
+export const rejectTeacher = (teacherId) => {
+  const users = getUsers();
+
+  if (!users[teacherId] || users[teacherId].role !== 'teacher') {
+    throw new Error('Teacher not found');
+  }
+
+  delete users[teacherId];
+  saveUsers(users);
+
+  console.log('❌ Teacher rejected and removed:', teacherId);
+  return true;
+};
+
+export const dismissTeacher = (teacherId) => {
+  const users = getUsers();
+
+  if (!users[teacherId] || users[teacherId].role !== 'teacher') {
+    throw new Error('Teacher not found');
+  }
+
+  users[teacherId].isApproved = false;
+  users[teacherId].dismissedDate = new Date().toISOString();
+
+  saveUsers(users);
+  console.log('🚫 Teacher dismissed:', teacherId);
+  return users[teacherId];
+};
+
+export const updateTeacherProfile = (teacherId, profileData) => {
+  const users = getUsers();
+
+  if (!users[teacherId] || users[teacherId].role !== 'teacher') {
+    throw new Error('Teacher not found');
+  }
+
+  users[teacherId] = {
+    ...users[teacherId],
+    ...profileData,
+    updatedAt: new Date().toISOString()
+  };
+
+  saveUsers(users);
+  return users[teacherId];
+};
+
+export const getTeacherById = (teacherId) => {
+  const users = getUsers();
+  const teacher = users[teacherId];
+
+  if (!teacher || teacher.role !== 'teacher') {
+    return null;
+  }
+
+  return teacher;
+};
+
+// ==================== COURSE MANAGEMENT FUNCTIONS ====================
+export const getTeacherCourses = (teacherId) => {
+  const courses = getCourses();
+
+  if (!teacherId) {
+    console.log('No teacher ID found, returning all courses for demo');
+    return courses;
+  }
+
+  return Object.fromEntries(
+    Object.entries(courses).filter(([key, course]) => course.teacherId === teacherId)
+  );
+};
+
+export const getTeacherStats = (teacherId) => {
+  const teacherCourses = getTeacherCourses(teacherId);
+  const allStudents = getStudents();
+
+  const totalCourses = Object.keys(teacherCourses).length;
+  const totalLessons = Object.values(teacherCourses).reduce(
+    (acc, course) => acc + (course.lessons?.length || 0), 0
+  );
+
+  const teacherCourseKeys = Object.keys(teacherCourses);
+  const totalStudents = allStudents.filter(student =>
+    student.enrolledCourses?.some(courseKey =>
+      teacherCourseKeys.includes(courseKey)
+    )
+  ).length;
+
+  let totalCompletions = 0;
+  let totalPossibleCompletions = 0;
+
+  allStudents.forEach(student => {
+    teacherCourseKeys.forEach(courseKey => {
+      if (student.enrolledCourses?.includes(courseKey)) {
+        totalPossibleCompletions++;
+        if (student.completedCourses?.includes(courseKey)) {
+          totalCompletions++;
+        }
+      }
+    });
+  });
+
+  const averageCompletionRate = totalPossibleCompletions > 0
+    ? Math.round((totalCompletions / totalPossibleCompletions) * 100)
+    : 0;
+
+  const paymentStats = getTeacherPaymentStats(teacherId);
+
+  return {
+    totalCourses,
+    totalLessons,
+    totalStudents,
+    averageCompletionRate,
+    totalEarnings: paymentStats.totalEarnings,
+    availableBalance: paymentStats.availableBalance,
+    monthlyEarnings: paymentStats.monthlyEarnings,
+    totalSales: paymentStats.totalSales,
+    recentActivity: [
+      {
+        type: 'course',
+        title: 'New Course Created',
+        description: 'You created a new course',
+        date: new Date().toISOString()
+      },
+      {
+        type: 'lesson',
+        title: 'Lesson Updated',
+        description: 'You updated a lesson',
+        date: new Date(Date.now() - 86400000).toISOString()
+      }
+    ]
+  };
+};
+
+export const getCurrentTeacherId = () => {
+  const currentUser = getCurrentUser();
+  return currentUser && currentUser.role === 'teacher' ? currentUser.id : null;
+};
+
+export const addNewCourse = (courseData) => {
+  const courses = getCourses();
+  const courseKey = courseData.key || generateCourseKey(courseData.title);
+
+  if (courses[courseKey]) {
+    throw new Error('Course with this key already exists');
+  }
+
+  const teacherId = getCurrentTeacherId();
+
+  courses[courseKey] = {
+    ...courseData,
+    key: courseKey,
+    teacherId: teacherId,
+    lessons: courseData.lessons || [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  localStorage.setItem(COURSES_KEY, JSON.stringify(courses));
+  return courseKey;
+};
+
+const generateCourseKey = (title) => {
+  return title.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+};
+
+// ==================== ADMIN COURSE MANAGEMENT FUNCTIONS ====================
+export const getAllCoursesForAdmin = () => {
+  return getCourses();
+};
+
+export const getCourseDetailsForAdmin = (courseKey) => {
+  const courses = getCourses();
+  const course = courses[courseKey];
+
+  if (!course) {
+    throw new Error('Course not found');
+  }
+
+  const users = getUsers();
+  const teacher = users[course.teacherId];
+
+  return {
+    ...course,
+    teacherInfo: teacher ? {
+      name: teacher.name,
+      email: teacher.email,
+      specialization: teacher.specialization,
+      isApproved: teacher.isApproved
+    } : null
+  };
+};
+
+export const deleteCourseAsAdmin = (courseKey) => {
+  const courses = getCourses();
+  if (!courses[courseKey]) {
+    throw new Error('Course not found');
+  }
+
+  const teacherId = courses[courseKey].teacherId;
+  if (teacherId) {
+    const users = getUsers();
+    const teacher = users[teacherId];
+    if (teacher && teacher.courses) {
+      teacher.courses = teacher.courses.filter(course => course !== courseKey);
+      saveUsers(users);
+    }
+  }
+
+  const students = getStudents();
+  const updatedStudents = students.map(student => ({
+    ...student,
+    enrolledCourses: student.enrolledCourses?.filter(course => course !== courseKey) || [],
+    completedCourses: student.completedCourses?.filter(course => course !== courseKey) || [],
+    progress: Object.fromEntries(
+      Object.entries(student.progress || {}).filter(([key]) => key !== courseKey)
+    )
+  }));
+  saveStudents(updatedStudents);
+
+  const updatedCourses = { ...courses };
+  delete updatedCourses[courseKey];
+  saveCourses(updatedCourses);
+
+  console.log(`🗑 Admin deleted course: ${courseKey}`);
+  return true;
+};
+
+export const getPlatformStats = () => {
+  const students = getStudents();
+  const courses = getCourses();
+  const teachers = getAllTeachers();
+  const approvedTeachers = getApprovedTeachers();
+  const pendingTeachers = getPendingTeachers();
+  const users = getAllUsers();
+
+  const totalStudents = students.length;
+  const totalTeachers = teachers.length;
+  const totalApprovedTeachers = approvedTeachers.length;
+  const totalPendingTeachers = pendingTeachers.length;
+  const totalCourses = Object.keys(courses).length;
+  const totalLessons = Object.values(courses).reduce((total, course) =>
+    total + course.lessons.length, 0
+  );
+  const totalCompletedLessons = students.reduce((total, student) =>
+    total + student.completedLessons.length, 0
+  );
+
+  const recentStudents = students
+    .sort((a, b) => new Date(b.joinedDate) - new Date(a.joinedDate))
+    .slice(0, 5);
+
+  return {
+    totalStudents,
+    totalTeachers,
+    totalApprovedTeachers,
+    totalPendingTeachers,
+    totalCourses,
+    totalLessons,
+    totalCompletedLessons,
+    totalUsers: users.length,
+    recentStudents,
+    studentProgress: students.map(student => ({
+      name: student.name,
+      progress: Object.values(student.progress).reduce((a, b) => a + b, 0) / 3,
+      completedLessons: student.completedLessons.length,
+      joinedDate: student.joinedDate
+    }))
+  };
+};
+
+// ==================== USER MANAGEMENT FUNCTIONS ====================
+export const deleteUser = (userId) => {
+  const users = getUsers();
+  const currentUser = getCurrentUser();
+
+  if (!users[userId]) {
+    throw new Error('User not found');
+  }
+
+  if (currentUser && currentUser.id === userId) {
+    throw new Error('Cannot delete your own account');
+  }
+
+  if (users[userId].role === 'admin') {
+    throw new Error('Cannot delete admin users');
+  }
+
+  delete users[userId];
+  saveUsers(users);
+
+  if (users[userId]?.role === 'student') {
+    const students = getStudents();
+    const updatedStudents = students.filter(student => student.userId !== userId);
+    saveStudents(updatedStudents);
+  }
+
+  if (users[userId]?.role === 'teacher') {
+    const wallets = getTeacherWallets();
+    if (wallets[userId]) {
+      delete wallets[userId];
+      saveTeacherWallets(wallets);
+    }
+  }
+
+  console.log('🗑 User deleted:', userId);
+  return true;
+};
+
+export const updateUser = (userId, userData) => {
+  const users = getUsers();
+
+  if (!users[userId]) {
+    throw new Error('User not found');
+  }
+
+  users[userId] = {
+    ...users[userId],
+    ...userData,
+    updatedAt: new Date().toISOString()
+  };
+
+  saveUsers(users);
+  return users[userId];
+};
+
+export const getUserById = (userId) => {
+  const users = getUsers();
+  return users[userId] || null;
+};
+
+
+
+
+
+
 // ==================== TEACHER WALLET FUNCTIONS ====================
 export const initializeTeacherWallets = () => {
   try {
@@ -1112,6 +1479,27 @@ export default {
   // Teacher functions
   getAllTeachers,
   updateTeacherProfileWithWhatsApp,
+
+
+getPendingTeachers,
+  getApprovedTeachers,
+  approveTeacher,
+  rejectTeacher,
+  dismissTeacher,
+  updateTeacherProfile,
+  getTeacherById,
+  getTeacherCourses,
+  getTeacherStats,
+  getCurrentTeacherId,
+  addNewCourse,
+  getAllCoursesForAdmin,
+  getCourseDetailsForAdmin,
+  deleteCourseAsAdmin,
+  getPlatformStats,
+  deleteUser,
+  updateUser,
+  getUserById
+
   // General functions
   getAllUsers,
   debugStorage
