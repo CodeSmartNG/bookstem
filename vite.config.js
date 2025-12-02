@@ -3,37 +3,26 @@ import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
   const env = loadEnv(mode, process.cwd(), '')
   
   return {
     plugins: [react()],
-    base: './',
+    base: '/bookstem/', // Use this for GitHub Pages
     build: {
       outDir: 'dist',
       sourcemap: false,
       minify: 'esbuild',
+      // Remove react-router-dom from external
       rollupOptions: {
-        // External dependencies that should not be bundled
-        external: [
-          'react',
-          'react-dom',
-          'react-router-dom' // ✅ ADD THIS LINE
-        ]
+        external: [] // Keep empty or only externalize truly external libs
       }
     },
     server: {
       port: 3000,
       open: true
     },
-    // Explicitly define global constants
     define: {
-      'process.env.VITE_PAYSTACK_PUBLIC_KEY': JSON.stringify(env.VITE_PAYSTACK_PUBLIC_KEY),
-      'process.env': {}
-    },
-    // Optimize dependencies
-    optimizeDeps: {
-      include: ['react', 'react-dom', 'react-router-dom']
+      'process.env.VITE_PAYSTACK_PUBLIC_KEY': JSON.stringify(env.VITE_PAYSTACK_PUBLIC_KEY)
     }
   }
 })
