@@ -991,6 +991,112 @@ export const getTeacherPaymentStats = (teacherId) => {
   };
 };
 
+
+
+
+
+
+
+// Add this function to your storage.js file
+
+// ==================== COURSE ANALYTICS FUNCTION ====================
+export const getCourseAnalyticsForAdmin = (courseKey) => {
+  const course = getCourseByKey(courseKey);
+  if (!course) {
+    throw new Error('Course not found');
+  }
+
+  const students = getStudents();
+  const enrolledStudents = students.filter(student => 
+    student.enrolledCourses?.includes(courseKey)
+  );
+
+  const completedStudents = students.filter(student => 
+    student.completedCourses?.includes(courseKey)
+  );
+
+  let totalLessonCompletions = 0;
+  let totalPossibleCompletions = 0;
+
+  enrolledStudents.forEach(student => {
+    course.lessons.forEach(lesson => {
+      totalPossibleCompletions++;
+      if (student.completedLessons?.includes(`${courseKey}-${lesson.id}`)) {
+        totalLessonCompletions++;
+      }
+    });
+  });
+
+  const averageCompletionRate = totalPossibleCompletions > 0 
+    ? Math.round((totalLessonCompletions / totalPossibleCompletions) * 100)
+    : 0;
+
+  // Quiz analytics
+  let totalQuizAttempts = 0;
+  let passedQuizAttempts = 0;
+  let totalQuizScore = 0;
+
+  enrolledStudents.forEach(student => {
+    if (student.quizResults) {
+      student.quizResults.forEach(result => {
+        if (result.courseKey === courseKey) {
+          totalQuizAttempts++;
+          totalQuizScore += result.score;
+          if (result.passed) {
+            passedQuizAttempts++;
+          }
+        }
+      });
+    }
+  });
+
+  const averageQuizScore = totalQuizAttempts > 0 ? Math.round(totalQuizScore / totalQuizAttempts) : 0;
+  const quizPassRate = totalQuizAttempts > 0 ? Math.round((passedQuizAttempts / totalQuizAttempts) * 100) : 0;
+
+  return {
+    courseKey,
+    courseTitle: course.title,
+    totalEnrolled: enrolledStudents.length,
+    totalCompleted: completedStudents.length,
+    completionRate: enrolledStudents.length > 0 ? Math.round((completedStudents.length / enrolledStudents.length) * 100) : 0,
+    averageLessonCompletion: averageCompletionRate,
+    totalLessons: course.lessons.length,
+    totalQuizAttempts,
+    averageQuizScore,
+    quizPassRate,
+    recentEnrollments: enrolledStudents
+      .sort((a, b) => new Date(b.joinedDate) - new Date(a.joinedDate))
+      .slice(0, 5)
+      .map(student => ({
+        name: student.name,
+        enrolledDate: student.enrolledCoursesDate?.[courseKey] || student.joinedDate,
+        progress: student.progress?.[courseKey] || 0
+      }))
+  };
+};
+
+// Also add this function that might be used
+export const getAllCoursesAnalyticsForAdmin = () => {
+  const courses = getCourses();
+  const analytics = [];
+
+  Object.entries(courses).forEach(([courseKey, course]) => {
+    const courseAnalytics = getCourseAnalyticsForAdmin(courseKey);
+    analytics.push(courseAnalytics);
+  });
+
+  return analytics.sort((a, b) => b.totalEnrolled - a.totalEnrolled);
+};
+
+// Add these to the export list at the bottom of your file
+export {
+  getCourseAnalyticsForAdmin,
+  getAllCoursesAnalyticsForAdmin
+};
+
+
+
+
 // ==================== BASIC FUNCTIONS ====================
 export const getUsers = () => {
   try {
@@ -1205,6 +1311,20 @@ export default {
   getUserById,
   deleteUser,
   updateUser,
+// Teacher functions
+
+getPendingTeachers,
+  approveTeacher,
+  rejectTeacher,
+  getApprovedTeachers,
+  getPlatformStats,
+  getAllCoursesForAdmin,
+  deleteCourseAsAdmin,
+  getCourseAnalyticsForAdmin,
+  getAllCoursesAnalyticsForAdmin,
+  deleteUser,
+  updateUser,
+  getUserById
   // Payment functions
   purchaseLesson,
   hasStudentPurchasedLesson,
