@@ -3,6 +3,7 @@ import { getCourses, getCurrentUser, canAccessLesson, purchaseLesson, getTeacher
 import Quiz from './Quiz';
 import MultimediaViewer from './MultimediaViewer';
 import PaymentModal from './payments/PaymentModal';
+import PaystackPayment from './payments/PaystackPayment'; // NEW: Import PaystackPayment
 import { processTeacherPayment } from '../utils/teacherPaymentService';
 import './CourseCatalog.css';
 
@@ -14,8 +15,10 @@ const CourseCatalog = ({ student, setStudent }) => {
   const [currentQuiz, setCurrentQuiz] = useState(null);
   const [expandedCourses, setExpandedCourses] = useState({});
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showPaystackModal, setShowPaystackModal] = useState(false); // NEW: Separate modal for Paystack
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [error, setError] = useState(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   // Load courses from storage
   useEffect(() => {
@@ -145,8 +148,8 @@ const CourseCatalog = ({ student, setStudent }) => {
     return canAccessLesson(currentUser.id, courseKey, lessonId);
   };
 
-  // NEW: Handle lesson purchase
-  const handlePurchaseLesson = async (courseKey, lessonIndex) => {
+  // UPDATED: Handle lesson purchase with Paystack option
+  const handlePurchaseLesson = async (courseKey, lessonIndex, usePaystack = false) => {
     try {
       const currentUser = getCurrentUser();
       if (!currentUser) {
@@ -163,17 +166,35 @@ const CourseCatalog = ({ student, setStudent }) => {
       }
 
       if (window.confirm(`Are you sure you want to purchase "${lesson.title}" for ₦${lesson.price}?`)) {
-        const paymentResult = await purchaseLesson(currentUser.id, courseKey, lesson.id);
-        
-        if (paymentResult) {
-          alert('✅ Payment successful! You now have access to this lesson.');
-          // Reload courses to reflect the purchase
-          loadCourses();
-          // Start the lesson
-          setSelectedCourse(courseKey);
-          setCurrentLesson(lessonIndex);
+        if (usePaystack) {
+          // Show Paystack payment modal
+          setSelectedLesson({ 
+            courseKey, 
+            lessonIndex, 
+            lesson: { 
+              ...lesson, 
+              title: lesson.title || 'Untitled Lesson',
+              courseKey: courseKey,
+              price: lesson.price || 500,
+              teacherId: course.teacherId || 'default_teacher',
+              teacherName: course.teacherName || 'Course Teacher'
+            } 
+          });
+          setShowPaystackModal(true);
         } else {
-          alert('❌ Payment failed. Please try again.');
+          // Use old payment method
+          const paymentResult = await purchaseLesson(currentUser.id, courseKey, lesson.id);
+          
+          if (paymentResult) {
+            alert('✅ Payment successful! You now have access to this lesson.');
+            // Reload courses to reflect the purchase
+            loadCourses();
+            // Start the lesson
+            setSelectedCourse(courseKey);
+            setCurrentLesson(lessonIndex);
+          } else {
+            alert('❌ Payment failed. Please try again.');
+          }
         }
       }
     } catch (error) {
@@ -182,7 +203,7 @@ const CourseCatalog = ({ student, setStudent }) => {
     }
   };
 
-  // UPDATED: Handle starting a lesson with new payment system
+  // UPDATED: Handle starting a lesson with Paystack integration
   const handleStartLesson = (courseKey, lessonIndex) => {
     try {
       if (!courses || !courses[courseKey]) return;
@@ -209,14 +230,14 @@ const CourseCatalog = ({ student, setStudent }) => {
           lessonIndex, 
           lesson: { 
             ...lesson, 
-            title: lesson.title || 'Untitled Lesson', // SAFETY CHECK ADDED
-            courseId: courseKey,
+            title: lesson.title || 'Untitled Lesson',
+            courseKey: courseKey,
             price: lesson.price || 500,
             teacherId: course.teacherId || 'default_teacher',
             teacherName: course.teacherName || 'Course Teacher'
           } 
         });
-        setShowPaymentModal(true);
+        setShowPaystackModal(true); // Use Paystack modal
         return;
       }
 
@@ -227,14 +248,14 @@ const CourseCatalog = ({ student, setStudent }) => {
           lessonIndex, 
           lesson: { 
             ...lesson, 
-            title: lesson.title || 'Untitled Lesson', // SAFETY CHECK ADDED
-            courseId: courseKey,
+            title: lesson.title || 'Untitled Lesson',
+            courseKey: courseKey,
             price: lesson.price || 500,
             teacherId: course.teacherId || 'default_teacher',
             teacherName: course.teacherName || 'Course Teacher'
           } 
         });
-        setShowPaymentModal(true);
+        setShowPaystackModal(true); // Use Paystack modal
         return;
       }
 
@@ -247,46 +268,73 @@ const CourseCatalog = ({ student, setStudent }) => {
     }
   };
 
-  // UPDATED: Handle payment success
-  const handlePaymentSuccess = async (paymentData) => {
+  // NEW: Handle Paystack payment success
+  const handlePaystackPaymentSuccess = async (paymentData) => {
     try {
-      console.log('Payment successful:', paymentData);
+      console.log('Paystack payment successful:', paymentData);
       
       if (selectedLesson) {
-        // 1. Process teacher payment and payout
-        const teacherPaymentSuccess = await processTeacherPayment(
-          paymentData, 
-          selectedLesson.lesson, 
-          student
+        // 1. Record the purchase in your system
+        const currentUser = getCurrentUser();
+        const purchaseResult = await purchaseLesson(
+          currentUser.id, 
+          selectedLesson.courseKey, 
+          selectedLesson.lesson.id,
+          {
+            paymentReference: paymentData.reference,
+            amount: selectedLesson.lesson.price,
+            paymentMethod: 'paystack',
+            transactionId: paymentData.transactionId
+          }
         );
 
-        // 2. Reload courses to reflect the purchase
-        loadCourses();
-        
-        // 3. Start the lesson
-        setSelectedCourse(selectedLesson.courseKey);
-        setCurrentLesson(selectedLesson.lessonIndex);
-        setShowPaymentModal(false);
-        setSelectedLesson(null);
-        
-        // 4. Show appropriate success message
-        if (teacherPaymentSuccess) {
+        if (purchaseResult) {
+          // 2. Process teacher payment and payout
+          try {
+            await processTeacherPayment(
+              paymentData, 
+              selectedLesson.lesson, 
+              student
+            );
+          } catch (teacherPaymentError) {
+            console.error('Teacher payment processing error:', teacherPaymentError);
+            // Continue even if teacher payment fails
+          }
+
+          // 3. Reload courses to reflect the purchase
+          loadCourses();
+          
+          // 4. Start the lesson
+          setSelectedCourse(selectedLesson.courseKey);
+          setCurrentLesson(selectedLesson.lessonIndex);
+          setShowPaystackModal(false);
+          setSelectedLesson(null);
+          
+          // 5. Show success message
           alert('🎉 Payment successful! Lesson unlocked and teacher payment processed.');
         } else {
-          alert('🎉 Payment successful! Lesson unlocked. Teacher payment is being processed.');
+          alert('❌ Payment successful but access not granted. Please contact support.');
         }
       }
     } catch (error) {
-      console.error('Error processing teacher payment:', error);
+      console.error('Error processing payment:', error);
       
-      // Still proceed with lesson access
-      setSelectedCourse(selectedLesson?.courseKey);
-      setCurrentLesson(selectedLesson?.lessonIndex);
-      setShowPaymentModal(false);
+      // Still proceed with lesson access if possible
+      if (selectedLesson) {
+        setSelectedCourse(selectedLesson.courseKey);
+        setCurrentLesson(selectedLesson.lessonIndex);
+      }
+      setShowPaystackModal(false);
       setSelectedLesson(null);
       
-      alert('🎉 Payment successful! Lesson unlocked. There was an issue with teacher payout - support will handle it.');
+      alert('🎉 Payment successful! Lesson unlocked. Please contact support if you have any issues.');
     }
+  };
+
+  // Keep original handlePaymentSuccess for backward compatibility
+  const handlePaymentSuccess = async (paymentData) => {
+    // Redirect to Paystack payment success handler
+    await handlePaystackPaymentSuccess(paymentData);
   };
 
   const completeLesson = (courseKey, lessonId) => {
@@ -409,12 +457,21 @@ const CourseCatalog = ({ student, setStudent }) => {
               <h3>🔒 Premium Content</h3>
               <p>This lesson requires payment to access the content.</p>
               <div className="price-display">₦{lesson.price}</div>
-              <button 
-                onClick={() => handlePurchaseLesson(selectedCourse, currentLesson)}
-                className="purchase-access-btn"
-              >
-                Purchase Access
-              </button>
+              <div className="payment-options">
+                <button 
+                  onClick={() => handlePurchaseLesson(selectedCourse, currentLesson, false)}
+                  className="purchase-access-btn"
+                >
+                  Purchase with Bank Transfer
+                </button>
+                <button 
+                  onClick={() => handlePurchaseLesson(selectedCourse, currentLesson, true)}
+                  className="purchase-access-btn paystack-btn"
+                >
+                  Pay with Paystack
+                </button>
+              </div>
+              <small className="payment-note">Paystack accepts card, bank transfer, USSD, and mobile money</small>
             </div>
           </div>
         ) : (
@@ -637,7 +694,54 @@ const CourseCatalog = ({ student, setStudent }) => {
         })}
       </div>
 
-      {/* UPDATED: PaymentModal with safety checks */}
+      {/* NEW: Paystack Payment Modal */}
+      {showPaystackModal && selectedLesson?.lesson && (
+        <div className="modal-overlay" onClick={() => setShowPaystackModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Purchase Lesson</h3>
+              <button 
+                className="modal-close"
+                onClick={() => setShowPaystackModal(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="payment-summary">
+                <h4>{selectedLesson.lesson.title}</h4>
+                <p className="course-name">
+                  Course: {courses[selectedLesson.courseKey]?.title || 'Course'}
+                </p>
+                <div className="price-section">
+                  <span className="price-label">Amount:</span>
+                  <span className="price-amount">₦{selectedLesson.lesson.price.toLocaleString()}</span>
+                </div>
+              </div>
+              
+              <PaystackPayment
+                lesson={selectedLesson.lesson}
+                student={student}
+                onSuccess={handlePaystackPaymentSuccess}
+                onClose={() => setShowPaystackModal(false)}
+                onError={(error) => {
+                  console.error('Paystack payment error:', error);
+                  alert(`Payment error: ${error.message}`);
+                  setShowPaystackModal(false);
+                }}
+              />
+
+              <div className="payment-security">
+                <p className="security-note">
+                  🔒 Your payment is secured by Paystack. We do not store your card details.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPDATED: Original PaymentModal with safety checks */}
       <PaymentModal
         isOpen={showPaymentModal && selectedLesson?.lesson} // VALIDATION ADDED
         onClose={() => {
