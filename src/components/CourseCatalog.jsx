@@ -3,8 +3,9 @@ import { getCourses, getCurrentUser, canAccessLesson, purchaseLesson, getTeacher
 import Quiz from './Quiz';
 import MultimediaViewer from './MultimediaViewer';
 import PaymentModal from './payments/PaymentModal';
-import PaystackPayment from './payments/PaystackPayment'; // NEW: Import PaystackPayment
+import PaystackPayment from './payments/PaystackPayment';
 import { processTeacherPayment } from '../utils/teacherPaymentService';
+import { paymentService, usePaystackPaymentLink } from '../utils/paymentService'; // ADDED: Import payment services
 import './CourseCatalog.css';
 
 const CourseCatalog = ({ student, setStudent }) => {
@@ -15,10 +16,11 @@ const CourseCatalog = ({ student, setStudent }) => {
   const [currentQuiz, setCurrentQuiz] = useState(null);
   const [expandedCourses, setExpandedCourses] = useState({});
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [showPaystackModal, setShowPaystackModal] = useState(false); // NEW: Separate modal for Paystack
+  const [showPaystackModal, setShowPaystackModal] = useState(false);
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [error, setError] = useState(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [message, setMessage] = useState(''); // ADDED: For displaying messages
 
   // Load courses from storage
   useEffect(() => {
@@ -29,7 +31,6 @@ const CourseCatalog = ({ student, setStudent }) => {
     try {
       const coursesData = getCourses();
       console.log('Loaded courses:', coursesData);
-      // Ensure coursesData is always an object
       setCourses(coursesData || {});
     } catch (err) {
       console.error('Error loading courses:', err);
@@ -117,7 +118,6 @@ const CourseCatalog = ({ student, setStudent }) => {
         if (!updatedStudent.completedLessons) updatedStudent.completedLessons = [];
         updatedStudent.completedLessons.push(lessonId);
 
-        // Update course progress
         const totalLessons = courses[selectedCourse].lessons?.length || 0;
         const completedLessons = courses[selectedCourse].lessons?.filter(
           lesson => updatedStudent.completedLessons?.includes(`${selectedCourse}-${lesson.id}`)
@@ -140,15 +140,74 @@ const CourseCatalog = ({ student, setStudent }) => {
     setCurrentQuiz(null);
   };
 
-  // NEW: Check if student can access lesson
-  const canAccessLessonContent = (courseKey, lessonId) => {
-    const currentUser = getCurrentUser();
-    if (!currentUser) return false;
-    
-    return canAccessLesson(currentUser.id, courseKey, lessonId);
+  // NEW: Integrated handleLessonPurchase function
+  const handleLessonPurchase = async (courseKey, lessonId, lessonIndex = null) => {
+    try {
+      const currentUser = getCurrentUser();
+      if (!currentUser) {
+        setMessage('Please log in to purchase lessons');
+        return false;
+      }
+
+      // Get lesson details
+      const courses = getCourses();
+      const course = courses[courseKey];
+      const lesson = course?.lessons?.find(l => l.id === lessonId);
+      
+      if (!lesson) {
+        setMessage('Lesson not found');
+        return false;
+      }
+
+      // Use paymentService to redirect to Paystack
+      const paymentData = {
+        amount: lesson.price,
+        email: currentUser.email,
+        lessonId: lesson.id,
+        lessonTitle: lesson.title,
+        courseKey: courseKey,
+        courseTitle: course.title,
+        studentId: currentUser.id,
+        studentName: currentUser.name,
+        teacherId: course.teacherId,
+        teacherName: course.teacherName
+      };
+
+      // Method 1: Direct redirect to your payment link
+      if (usePaystackPaymentLink) {
+        usePaystackPaymentLink(paymentData);
+        return true;
+      }
+
+      // Method 2: Using the service (more control)
+      const result = await paymentService.initiateDirectPayment(paymentData);
+      
+      if (result.status) {
+        // Store payment info for verification
+        localStorage.setItem('paystack_payment_info', JSON.stringify({
+          ...paymentData,
+          reference: result.data.reference,
+          timestamp: new Date().toISOString(),
+          lessonIndex: lessonIndex // Store for later use
+        }));
+        
+        // Redirect to payment page
+        window.location.href = result.data.payment_url || 
+                             'https://paystack.shop/pay/8wikapcy3c';
+        return true;
+      } else {
+        setMessage(result.message || 'Payment initialization failed');
+        return false;
+      }
+
+    } catch (error) {
+      console.error('Error purchasing lesson:', error);
+      setMessage('❌ Error processing payment: ' + error.message);
+      return false;
+    }
   };
 
-  // UPDATED: Handle lesson purchase with Paystack option
+  // UPDATED: Handle lesson purchase with new function
   const handlePurchaseLesson = async (courseKey, lessonIndex, usePaystack = false) => {
     try {
       const currentUser = getCurrentUser();
@@ -167,29 +226,32 @@ const CourseCatalog = ({ student, setStudent }) => {
 
       if (window.confirm(`Are you sure you want to purchase "${lesson.title}" for ₦${lesson.price}?`)) {
         if (usePaystack) {
-          // Show Paystack payment modal
-          setSelectedLesson({ 
-            courseKey, 
-            lessonIndex, 
-            lesson: { 
-              ...lesson, 
-              title: lesson.title || 'Untitled Lesson',
-              courseKey: courseKey,
-              price: lesson.price || 500,
-              teacherId: course.teacherId || 'default_teacher',
-              teacherName: course.teacherName || 'Course Teacher'
-            } 
-          });
-          setShowPaystackModal(true);
+          // Use the new handleLessonPurchase function
+          const purchaseInitiated = await handleLessonPurchase(courseKey, lesson.id, lessonIndex);
+          
+          if (!purchaseInitiated) {
+            // If purchase wasn't initiated (e.g., immediate redirect), fall back to modal
+            setSelectedLesson({ 
+              courseKey, 
+              lessonIndex, 
+              lesson: { 
+                ...lesson, 
+                title: lesson.title || 'Untitled Lesson',
+                courseKey: courseKey,
+                price: lesson.price || 500,
+                teacherId: course.teacherId || 'default_teacher',
+                teacherName: course.teacherName || 'Course Teacher'
+              } 
+            });
+            setShowPaystackModal(true);
+          }
         } else {
           // Use old payment method
           const paymentResult = await purchaseLesson(currentUser.id, courseKey, lesson.id);
           
           if (paymentResult) {
             alert('✅ Payment successful! You now have access to this lesson.');
-            // Reload courses to reflect the purchase
             loadCourses();
-            // Start the lesson
             setSelectedCourse(courseKey);
             setCurrentLesson(lessonIndex);
           } else {
@@ -203,7 +265,7 @@ const CourseCatalog = ({ student, setStudent }) => {
     }
   };
 
-  // UPDATED: Handle starting a lesson with Paystack integration
+  // UPDATED: Handle starting a lesson
   const handleStartLesson = (courseKey, lessonIndex) => {
     try {
       if (!courses || !courses[courseKey]) return;
@@ -222,9 +284,20 @@ const CourseCatalog = ({ student, setStudent }) => {
         return;
       }
 
-      // NEW: Check if lesson is paid and if student has access
+      // Check if lesson is paid and if student has access
       if (!lesson.isFree && !canAccessLesson(currentUser.id, courseKey, lesson.id)) {
-        // Show payment modal for paid lessons without access
+        // Option 1: Use the new handleLessonPurchase function with immediate redirect
+        const shouldRedirectToPaystack = confirm(
+          `Purchase "${lesson.title}" for ₦${lesson.price}?\n\n` +
+          `Click OK to proceed to payment.`
+        );
+        
+        if (shouldRedirectToPaystack) {
+          handleLessonPurchase(courseKey, lesson.id, lessonIndex);
+          return;
+        }
+        
+        // Option 2: Show payment modal (fallback)
         setSelectedLesson({ 
           courseKey, 
           lessonIndex, 
@@ -237,11 +310,11 @@ const CourseCatalog = ({ student, setStudent }) => {
             teacherName: course.teacherName || 'Course Teacher'
           } 
         });
-        setShowPaystackModal(true); // Use Paystack modal
+        setShowPaystackModal(true);
         return;
       }
 
-      // OLD: Check if lesson is locked (backward compatibility)
+      // Check if lesson is locked (backward compatibility)
       if (lesson.isLocked && !canAccessLesson(currentUser.id, courseKey, lesson.id)) {
         setSelectedLesson({ 
           courseKey, 
@@ -255,7 +328,7 @@ const CourseCatalog = ({ student, setStudent }) => {
             teacherName: course.teacherName || 'Course Teacher'
           } 
         });
-        setShowPaystackModal(true); // Use Paystack modal
+        setShowPaystackModal(true);
         return;
       }
 
@@ -274,7 +347,6 @@ const CourseCatalog = ({ student, setStudent }) => {
       console.log('Paystack payment successful:', paymentData);
       
       if (selectedLesson) {
-        // 1. Record the purchase in your system
         const currentUser = getCurrentUser();
         const purchaseResult = await purchaseLesson(
           currentUser.id, 
@@ -289,7 +361,6 @@ const CourseCatalog = ({ student, setStudent }) => {
         );
 
         if (purchaseResult) {
-          // 2. Process teacher payment and payout
           try {
             await processTeacherPayment(
               paymentData, 
@@ -298,19 +369,14 @@ const CourseCatalog = ({ student, setStudent }) => {
             );
           } catch (teacherPaymentError) {
             console.error('Teacher payment processing error:', teacherPaymentError);
-            // Continue even if teacher payment fails
           }
 
-          // 3. Reload courses to reflect the purchase
           loadCourses();
-          
-          // 4. Start the lesson
           setSelectedCourse(selectedLesson.courseKey);
           setCurrentLesson(selectedLesson.lessonIndex);
           setShowPaystackModal(false);
           setSelectedLesson(null);
           
-          // 5. Show success message
           alert('🎉 Payment successful! Lesson unlocked and teacher payment processed.');
         } else {
           alert('❌ Payment successful but access not granted. Please contact support.');
@@ -319,7 +385,6 @@ const CourseCatalog = ({ student, setStudent }) => {
     } catch (error) {
       console.error('Error processing payment:', error);
       
-      // Still proceed with lesson access if possible
       if (selectedLesson) {
         setSelectedCourse(selectedLesson.courseKey);
         setCurrentLesson(selectedLesson.lessonIndex);
@@ -331,9 +396,7 @@ const CourseCatalog = ({ student, setStudent }) => {
     }
   };
 
-  // Keep original handlePaymentSuccess for backward compatibility
   const handlePaymentSuccess = async (paymentData) => {
-    // Redirect to Paystack payment success handler
     await handlePaystackPaymentSuccess(paymentData);
   };
 
@@ -348,7 +411,6 @@ const CourseCatalog = ({ student, setStudent }) => {
         if (!updatedStudent.completedLessons) updatedStudent.completedLessons = [];
         updatedStudent.completedLessons.push(lessonKey);
 
-        // Update course progress
         const totalLessons = courses[courseKey].lessons?.length || 0;
         const completedLessons = courses[courseKey].lessons?.filter(
           lesson => updatedStudent.completedLessons?.includes(`${courseKey}-${lesson.id}`)
@@ -375,7 +437,7 @@ const CourseCatalog = ({ student, setStudent }) => {
     }
   };
 
-  // NEW: Get teacher WhatsApp URL
+  // Get teacher WhatsApp URL
   const getTeacherContactUrl = (teacherId) => {
     return getTeacherWhatsAppUrl(teacherId);
   };
@@ -423,9 +485,8 @@ const CourseCatalog = ({ student, setStudent }) => {
         </button>
 
         <div className="lesson-header">
-          <h2>{lesson.title || 'Untitled Lesson'}</h2> {/* SAFETY CHECK ADDED */}
+          <h2>{lesson.title || 'Untitled Lesson'}</h2>
           {isCompleted && <span className="completion-badge">Completed ✓</span>}
-          {/* NEW: Show price if paid lesson */}
           {!lesson.isFree && (
             <span className={`price-badge ${hasAccess ? 'purchased' : ''}`}>
               {hasAccess ? '✅ Purchased' : `₦${lesson.price}`}
@@ -436,7 +497,6 @@ const CourseCatalog = ({ student, setStudent }) => {
         {course.teacherName && (
           <div className="teacher-info">
             <strong>Instructor:</strong> {course.teacherName}
-            {/* NEW: WhatsApp contact button */}
             {course.teacherId && getTeacherContactUrl(course.teacherId) && (
               <a 
                 href={getTeacherContactUrl(course.teacherId)}
@@ -450,7 +510,14 @@ const CourseCatalog = ({ student, setStudent }) => {
           </div>
         )}
 
-        {/* NEW: Access control for lesson content */}
+        {/* Display message if any */}
+        {message && (
+          <div className="message-alert">
+            {message}
+            <button onClick={() => setMessage('')} className="close-message">×</button>
+          </div>
+        )}
+
         {!hasAccess && !lesson.isFree ? (
           <div className="payment-required">
             <div className="payment-prompt">
@@ -465,7 +532,7 @@ const CourseCatalog = ({ student, setStudent }) => {
                   Purchase with Bank Transfer
                 </button>
                 <button 
-                  onClick={() => handlePurchaseLesson(selectedCourse, currentLesson, true)}
+                  onClick={() => handleLessonPurchase(selectedCourse, lesson.id, currentLesson)}
                   className="purchase-access-btn paystack-btn"
                 >
                   Pay with Paystack
@@ -475,7 +542,6 @@ const CourseCatalog = ({ student, setStudent }) => {
             </div>
           </div>
         ) : (
-          /* Lesson Content - Only show if user has access */
           <>
             {lesson.multimedia && lesson.multimedia.length > 0 && (
               <div className="multimedia-container">
@@ -558,6 +624,13 @@ const CourseCatalog = ({ student, setStudent }) => {
         </div>
       )}
 
+      {message && (
+        <div className="message-alert">
+          {message}
+          <button onClick={() => setMessage('')} className="close-message">×</button>
+        </div>
+      )}
+
       <div className="courses-grid">
         {courseEntries.map(([key, course]) => {
           const currentUser = getCurrentUser();
@@ -569,11 +642,10 @@ const CourseCatalog = ({ student, setStudent }) => {
               <div className="course-header">
                 <span className="course-thumbnail">{course.thumbnail}</span>
                 <div className="course-title-section">
-                  <h3>{course.title || 'Untitled Course'}</h3> {/* SAFETY CHECK ADDED */}
+                  <h3>{course.title || 'Untitled Course'}</h3>
                   {course.teacherName && (
                     <div className="course-teacher">
                       <small>By: {course.teacherName}</small>
-                      {/* NEW: WhatsApp contact for teacher */}
                       {course.teacherId && getTeacherContactUrl(course.teacherId) && (
                         <a 
                           href={getTeacherContactUrl(course.teacherId)}
@@ -597,7 +669,6 @@ const CourseCatalog = ({ student, setStudent }) => {
 
               <p className="course-description">{course.description}</p>
 
-              {/* NEW: Course pricing summary */}
               <div className="course-pricing-summary">
                 <span className="free-lessons">{freeLessonsCount} Free</span>
                 {paidLessonsCount > 0 && (
@@ -646,7 +717,7 @@ const CourseCatalog = ({ student, setStudent }) => {
                         <div className="lesson-info">
                           <div className="lesson-main-info">
                             <span className="lesson-title">
-                              {lesson.title || 'Untitled Lesson'} {/* SAFETY CHECK ADDED */}
+                              {lesson.title || 'Untitled Lesson'}
                               {isPaidLesson && !hasAccess && <span className="lock-icon"> 🔒</span>}
                               {isPaidLesson && (
                                 <span className={`lesson-price ${hasAccess ? 'purchased' : ''}`}>
@@ -694,7 +765,7 @@ const CourseCatalog = ({ student, setStudent }) => {
         })}
       </div>
 
-      {/* NEW: Paystack Payment Modal */}
+      {/* Paystack Payment Modal */}
       {showPaystackModal && selectedLesson?.lesson && (
         <div className="modal-overlay" onClick={() => setShowPaystackModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -719,17 +790,15 @@ const CourseCatalog = ({ student, setStudent }) => {
                 </div>
               </div>
               
-              <PaystackPayment
-                lesson={selectedLesson.lesson}
-                student={student}
-                onSuccess={handlePaystackPaymentSuccess}
-                onClose={() => setShowPaystackModal(false)}
-                onError={(error) => {
-                  console.error('Paystack payment error:', error);
-                  alert(`Payment error: ${error.message}`);
-                  setShowPaystackModal(false);
-                }}
-              />
+              <div className="payment-redirect-note">
+                <p>You will be redirected to Paystack to complete your payment.</p>
+                <button 
+                  onClick={() => handleLessonPurchase(selectedLesson.courseKey, selectedLesson.lesson.id, selectedLesson.lessonIndex)}
+                  className="redirect-paystack-btn"
+                >
+                  Proceed to Paystack Payment
+                </button>
+              </div>
 
               <div className="payment-security">
                 <p className="security-note">
@@ -741,12 +810,11 @@ const CourseCatalog = ({ student, setStudent }) => {
         </div>
       )}
 
-      {/* UPDATED: Original PaymentModal with safety checks */}
       <PaymentModal
-        isOpen={showPaymentModal && selectedLesson?.lesson} // VALIDATION ADDED
+        isOpen={showPaymentModal && selectedLesson?.lesson}
         onClose={() => {
           setShowPaymentModal(false);
-          setSelectedLesson(null); // Reset on close
+          setSelectedLesson(null);
         }}
         lesson={selectedLesson?.lesson}
         student={student}
