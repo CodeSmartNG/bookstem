@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
-
 import './styles/payments.css';
+
+// Import components
 import StudentProfile from './components/StudentProfile';
 import CourseCatalog from './components/CourseCatalog';
 import Navigation from './components/Navigation';
@@ -24,6 +25,7 @@ import Support from './components/Support';
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentCallback from "./pages/PaymentCallback";
 
+// Import storage utilities
 import { 
   initializeStorage, 
   getStudents, 
@@ -44,47 +46,6 @@ import {
   getCourses,
   getLessons
 } from './utils/storage';
-
-// Safe object utility functions with detailed logging
-const safeObjectEntries = (obj, location = 'unknown') => {
-  console.log(`🔧 safeObjectEntries called from: ${location}`, obj);
-  try {
-    if (obj === null) {
-      console.log(`❌ ${location}: Object is null`);
-      return [];
-    }
-    if (obj === undefined) {
-      console.log(`❌ ${location}: Object is undefined`);
-      return [];
-    }
-    if (typeof obj !== 'object') {
-      console.log(`❌ ${location}: Not an object, type is:`, typeof obj);
-      return [];
-    }
-    const entries = Object.entries(obj);
-    console.log(`✅ ${location}: Object.entries success, count:`, entries.length);
-    return entries;
-  } catch (error) {
-    console.error(`❌ ${location}: Error in safeObjectEntries:`, error);
-    return [];
-  }
-};
-
-const safeObjectKeys = (obj, location = 'unknown') => {
-  console.log(`🔧 safeObjectKeys called from: ${location}`, obj);
-  try {
-    if (!obj || typeof obj !== 'object') {
-      console.log(`❌ ${location}: Invalid object for keys`);
-      return [];
-    }
-    const keys = Object.keys(obj);
-    console.log(`✅ ${location}: Object.keys success, count:`, keys.length);
-    return keys;
-  } catch (error) {
-    console.error(`❌ ${location}: Error in safeObjectKeys:`, error);
-    return [];
-  }
-};
 
 function App() {
   const [currentView, setCurrentView] = useState('login');
@@ -227,9 +188,10 @@ function App() {
     try {
       const user = authenticateUser(email, password);
       if (user) {
+        // Remove password from user object for security
         const { password: _, ...userWithoutPassword } = user;
         setCurrentUserState(userWithoutPassword);
-        setCurrentUser(userWithoutPassword);
+        setCurrentUser(userWithoutPassword); // This should be the imported function
 
         // Reset inactivity timer on login
         resetInactivityTimer();
@@ -258,7 +220,7 @@ function App() {
     try {
       // Check if email already exists in students
       const users = getUsers();
-      const existingUser = safeObjectEntries(users, 'student-register').find(([key, user]) => user.email === email);
+      const existingUser = Object.values(users).find(user => user.email === email);
 
       if (existingUser || students.find(s => s.email === email)) {
         setMessage('Email already exists. Please use a different email or login.');
@@ -296,7 +258,7 @@ function App() {
     try {
       // Check if email already exists
       const users = getUsers();
-      const existingUser = safeObjectEntries(users, 'teacher-register').find(([key, user]) => user.email === teacherData.email);
+      const existingUser = Object.values(users).find(user => user.email === teacherData.email);
 
       if (existingUser) {
         setMessage('Email already exists. Please use a different email or login.');
@@ -372,7 +334,7 @@ function App() {
 
     logoutUser();
     setCurrentUserState(null);
-    setCurrentUser(null);
+    setCurrentUser(null); // This should be the imported function
     setCurrentView('login');
     setMessage('');
     setShowConfirmationInfo(false);
@@ -388,7 +350,7 @@ function App() {
       // Update in state
       const { password, ...studentWithoutPassword } = updatedStudent;
       setCurrentUserState(studentWithoutPassword);
-      setCurrentUser(studentWithoutPassword);
+      setCurrentUser(studentWithoutPassword); // This should be the imported function
 
       // Update in students list
       setStudentsState(prev => 
@@ -412,7 +374,7 @@ function App() {
       // Update current user state
       const { password: _, ...userWithoutPassword } = updatedUser;
       setCurrentUserState(userWithoutPassword);
-      setCurrentUser(userWithoutPassword);
+      setCurrentUser(userWithoutPassword); // This should be the imported function
     } catch (error) {
       console.error('Error updating user:', error);
     }
@@ -443,7 +405,7 @@ function App() {
         const updatedUser = getCurrentUser();
         if (updatedUser) {
           setCurrentUserState(updatedUser);
-          setCurrentUser(updatedUser);
+          setCurrentUser(updatedUser); // This should be the imported function
         }
         setMessage('✅ Lesson purchased successfully!');
         
@@ -587,17 +549,26 @@ function App() {
     </div>
   ) : null;
 
+  // Message Display Component
+  const MessageDisplay = () => {
+    if (!message) return null;
+    
+    let messageType = 'info';
+    if (message.includes('success') || message.includes('Success')) messageType = 'success';
+    if (message.includes('error') || message.includes('Error') || message.includes('invalid') || message.includes('Invalid')) messageType = 'error';
+    if (message.includes('email') || message.includes('Email')) messageType = 'info';
+
+    return (
+      <div className={`message ${messageType}`}>
+        {message}
+      </div>
+    );
+  };
+
   // Render view based on current view and user role
   const renderView = () => {
     console.log('🎯 renderView called with currentView:', currentView);
     console.log('🎯 currentUser:', currentUser);
-
-    // Show message if exists
-    const MessageDisplay = () => message ? (
-      <div className={`message ${message.includes('success') ? 'success' : message.includes('email') ? 'info' : 'error'}`}>
-        {message}
-      </div>
-    ) : null;
 
     if (!currentUser) {
       console.log('👤 No current user, showing login/register views');
@@ -679,15 +650,12 @@ function App() {
       }
     }
 
-    // Role-based access control
-    console.log('🎯 Setting up role-based access control');
+    // User is logged in
     const isAdmin = currentUser?.role === 'admin';
     const isTeacher = currentUser?.role === 'teacher';
     const isStudent = currentUser?.role === 'student';
-    console.log('🎯 User roles - Admin:', isAdmin, 'Teacher:', isTeacher, 'Student:', isStudent);
 
     // Handle general navigation views (accessible to all logged-in users)
-    console.log('🎯 Checking general navigation views for:', currentView);
     switch(currentView) {
       case 'about':
         return <About />;
@@ -732,13 +700,11 @@ function App() {
           );
         }
       default:
-        console.log('🎯 No match in general navigation, continuing to role-specific views');
         break;
     }
 
     // Handle admin dashboard
     if (currentView === 'admin') {
-      console.log('🎯 Rendering admin dashboard');
       if (isAdmin) {
         return <AdminDashboard currentUser={currentUser} setCurrentView={setCurrentView} />;
       } else {
@@ -759,7 +725,6 @@ function App() {
 
     // Handle teacher dashboard
     if (currentView === 'teacher') {
-      console.log('🎯 Rendering teacher dashboard');
       if (isTeacher) {
         return <TeacherDashboard currentUser={currentUser} setCurrentUser={updateCurrentUser} />;
       } else {
@@ -780,7 +745,6 @@ function App() {
 
     // Student-specific views
     if (isStudent) {
-      console.log('🎯 Rendering student views for:', currentView);
       switch(currentView) {
         case 'profile':
           return <StudentProfile student={currentUser} setStudent={updateStudentData} />;
@@ -814,7 +778,6 @@ function App() {
 
     // Teacher-specific views
     if (isTeacher) {
-      console.log('🎯 Rendering teacher views for:', currentView);
       switch(currentView) {
         case 'profile':
           return (
@@ -846,7 +809,6 @@ function App() {
 
     // Admin-specific views
     if (isAdmin) {
-      console.log('🎯 Rendering admin views for:', currentView);
       switch(currentView) {
         case 'payment-success':
           return <PaymentSuccess setCurrentView={setCurrentView} />;
@@ -883,7 +845,6 @@ function App() {
     );
   }
 
-  console.log('🎯 Rendering main App component');
   return (
     <div className="App">
       {/* Inactivity Warning Modal */}
