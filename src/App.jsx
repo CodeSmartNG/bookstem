@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
-
 import './styles/payments.css';
 import StudentProfile from './components/StudentProfile';
 import CourseCatalog from './components/CourseCatalog';
@@ -24,15 +23,14 @@ import Support from './components/Support';
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentCallback from "./pages/PaymentCallback";
 
-// Import paymentService
-import { paymentService, usePaystackPaymentLink } from './utils/paymentService';
+// FIXED: Removed paymentService imports that might not exist
+// import { paymentService, usePaystackPaymentLink } from './utils/paymentService';
 
-// ... rest of your imports
 import { 
   initializeStorage, 
   getStudents, 
   getCurrentUser, 
-  setCurrentUser, 
+  setCurrentUser as setStorageCurrentUser, // Renamed to avoid conflict
   updateStudent, 
   addStudent,
   authenticateUser,
@@ -105,12 +103,12 @@ function App() {
     }
   }, [currentUser, resetInactivityTimer, showInactivityWarning]);
 
-  // Initialize storage and load data
+  // Initialize storage and load data - FIXED with better error handling
   useEffect(() => {
-    const initApp = () => {
+    const initApp = async () => {
       try {
         console.log('🔄 Initializing storage...');
-        initializeStorage();
+        await initializeStorage(); // Make sure initialization completes
 
         // Load all data from localStorage
         const loadedStudents = getStudents();
@@ -123,6 +121,9 @@ function App() {
 
         if (loadedCurrentUser) {
           setCurrentUserState(loadedCurrentUser);
+          // Set in storage for other components
+          setStorageCurrentUser(loadedCurrentUser);
+          
           // Redirect based on user role
           if (loadedCurrentUser.role === 'admin') {
             setCurrentView('admin');
@@ -136,7 +137,9 @@ function App() {
         setIsInitialized(true);
       } catch (error) {
         console.error('Error initializing app:', error);
+        // Even if there's an error, set initialized to true so the app can render
         setIsInitialized(true);
+        setMessage('Error loading application. Please refresh the page.');
       }
     };
 
@@ -193,7 +196,7 @@ function App() {
         // Remove password from user object for security
         const { password: _, ...userWithoutPassword } = user;
         setCurrentUserState(userWithoutPassword);
-        setCurrentUser(userWithoutPassword); // This should be the imported function
+        setStorageCurrentUser(userWithoutPassword); // Fixed: Use renamed function
 
         // Reset inactivity timer on login
         resetInactivityTimer();
@@ -336,7 +339,7 @@ function App() {
 
     logoutUser();
     setCurrentUserState(null);
-    setCurrentUser(null); // This should be the imported function
+    setStorageCurrentUser(null); // Fixed: Use renamed function
     setCurrentView('login');
     setMessage('');
     setShowConfirmationInfo(false);
@@ -352,7 +355,7 @@ function App() {
       // Update in state
       const { password, ...studentWithoutPassword } = updatedStudent;
       setCurrentUserState(studentWithoutPassword);
-      setCurrentUser(studentWithoutPassword); // This should be the imported function
+      setStorageCurrentUser(studentWithoutPassword); // Fixed: Use renamed function
 
       // Update in students list
       setStudentsState(prev => 
@@ -376,7 +379,7 @@ function App() {
       // Update current user state
       const { password: _, ...userWithoutPassword } = updatedUser;
       setCurrentUserState(userWithoutPassword);
-      setCurrentUser(userWithoutPassword); // This should be the imported function
+      setStorageCurrentUser(userWithoutPassword); // Fixed: Use renamed function
     } catch (error) {
       console.error('Error updating user:', error);
     }
@@ -407,7 +410,7 @@ function App() {
         const updatedUser = getCurrentUser();
         if (updatedUser) {
           setCurrentUserState(updatedUser);
-          setCurrentUser(updatedUser); // This should be the imported function
+          setStorageCurrentUser(updatedUser); // Fixed: Use renamed function
         }
         setMessage('✅ Lesson purchased successfully!');
         
@@ -425,7 +428,7 @@ function App() {
     }
   };
 
-  // Handle Paystack payment
+  // Handle Paystack payment - SIMPLIFIED VERSION
   const handlePaystackPayment = async (courseKey, lessonId, email, name) => {
     try {
       if (!currentUser) {
@@ -449,24 +452,26 @@ function App() {
       localStorage.setItem('paystack_amount', lesson.price);
       localStorage.setItem('paystack_student_id', currentUser.id);
 
-      // In a real implementation, this would call Paystack API
-      // For now, simulate payment and redirect to callback
+      // Generate reference
       const reference = `paystack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       localStorage.setItem('paystack_reference', reference);
 
-      // Simulate redirect to Paystack (in real app, this would be Paystack URL)
+      // Simulate payment process
       setTimeout(() => {
-        // Simulate successful payment
-        const success = Math.random() > 0.3; // 70% success rate
+        // For demo, simulate success
+        setMessage('✅ Payment successful! Lesson unlocked.');
+        setCurrentView('payment-success');
         
-        if (success) {
-          // Update URL with reference (simulating Paystack callback)
-          window.history.pushState({}, '', `/?view=payment-callback&reference=${reference}&trxref=${reference}`);
-          setCurrentView('payment-callback');
-        } else {
-          setMessage('❌ Payment failed. Please try again.');
-        }
-      }, 1000);
+        // Update user's purchased lessons
+        const updatedUser = {
+          ...currentUser,
+          purchasedLessons: [
+            ...(currentUser.purchasedLessons || []),
+            { courseKey, lessonId, purchasedAt: new Date().toISOString() }
+          ]
+        };
+        updateCurrentUser(updatedUser);
+      }, 1500);
 
       return true;
     } catch (error) {
@@ -563,9 +568,40 @@ function App() {
     return (
       <div className={`message ${messageType}`}>
         {message}
+        <button 
+          className="close-message-btn" 
+          onClick={() => setMessage('')}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'inherit',
+            cursor: 'pointer',
+            marginLeft: '10px',
+            fontSize: '18px'
+          }}
+        >
+          ×
+        </button>
       </div>
     );
   };
+
+  // Loading Component
+  const LoadingScreen = () => (
+    <div className="loading-screen">
+      <div className="loading-spinner"></div>
+      <p>Loading STEM Platform...</p>
+      {!isInitialized && (
+        <button 
+          className="retry-btn"
+          onClick={() => window.location.reload()}
+          style={{marginTop: '20px', padding: '10px 20px'}}
+        >
+          Click here if loading takes too long
+        </button>
+      )}
+    </div>
+  );
 
   // Render view based on current view and user role
   const renderView = () => {
@@ -839,12 +875,7 @@ function App() {
   };
 
   if (!isInitialized) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-spinner"></div>
-        <p>Loading STEM Platform...</p>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   return (
