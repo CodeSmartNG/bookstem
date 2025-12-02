@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
-import './styles/payments.css';
 
-// Import components
+import './styles/payments.css';
 import StudentProfile from './components/StudentProfile';
 import CourseCatalog from './components/CourseCatalog';
 import Navigation from './components/Navigation';
@@ -25,7 +24,10 @@ import Support from './components/Support';
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentCallback from "./pages/PaymentCallback";
 
-// Import storage utilities
+// Import paymentService
+import { paymentService, usePaystackPaymentLink } from './utils/paymentService';
+
+// ... rest of your imports
 import { 
   initializeStorage, 
   getStudents, 
