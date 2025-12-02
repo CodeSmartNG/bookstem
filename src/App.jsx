@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
+
 import './styles/payments.css';
 import StudentProfile from './components/StudentProfile';
 import CourseCatalog from './components/CourseCatalog';
@@ -21,16 +22,12 @@ import Resources from './components/Resources';
 import Careers from './components/Careers';
 import Support from './components/Support';
 import PaymentSuccess from "./pages/PaymentSuccess";
-import PaymentCallback from "./pages/PaymentCallback";
-
-// FIXED: Removed paymentService imports that might not exist
-// import { paymentService, usePaystackPaymentLink } from './utils/paymentService';
 
 import { 
   initializeStorage, 
   getStudents, 
   getCurrentUser, 
-  setCurrentUser as setStorageCurrentUser, // Renamed to avoid conflict
+  setCurrentUser, 
   updateStudent, 
   addStudent,
   authenticateUser,
@@ -43,9 +40,50 @@ import {
   canAccessLesson,
   purchaseLesson,
   getTeacherWhatsAppUrl,
-  getCourses,
-  getLessons
+  getCourses,     // ✅ ADD THIS
+  getLessons      // ✅ ADD THIS
 } from './utils/storage';
+
+// Safe object utility functions with detailed logging
+const safeObjectEntries = (obj, location = 'unknown') => {
+  console.log(`🔧 safeObjectEntries called from: ${location}`, obj);
+  try {
+    if (obj === null) {
+      console.log(`❌ ${location}: Object is null`);
+      return [];
+    }
+    if (obj === undefined) {
+      console.log(`❌ ${location}: Object is undefined`);
+      return [];
+    }
+    if (typeof obj !== 'object') {
+      console.log(`❌ ${location}: Not an object, type is:`, typeof obj);
+      return [];
+    }
+    const entries = Object.entries(obj);
+    console.log(`✅ ${location}: Object.entries success, count:`, entries.length);
+    return entries;
+  } catch (error) {
+    console.error(`❌ ${location}: Error in safeObjectEntries:`, error);
+    return [];
+  }
+};
+
+const safeObjectKeys = (obj, location = 'unknown') => {
+  console.log(`🔧 safeObjectKeys called from: ${location}`, obj);
+  try {
+    if (!obj || typeof obj !== 'object') {
+      console.log(`❌ ${location}: Invalid object for keys`);
+      return [];
+    }
+    const keys = Object.keys(obj);
+    console.log(`✅ ${location}: Object.keys success, count:`, keys.length);
+    return keys;
+  } catch (error) {
+    console.error(`❌ ${location}: Error in safeObjectKeys:`, error);
+    return [];
+  }
+};
 
 function App() {
   const [currentView, setCurrentView] = useState('login');
@@ -103,12 +141,12 @@ function App() {
     }
   }, [currentUser, resetInactivityTimer, showInactivityWarning]);
 
-  // Initialize storage and load data - FIXED with better error handling
+  // Initialize storage and load data
   useEffect(() => {
-    const initApp = async () => {
+    const initApp = () => {
       try {
         console.log('🔄 Initializing storage...');
-        await initializeStorage(); // Make sure initialization completes
+        initializeStorage();
 
         // Load all data from localStorage
         const loadedStudents = getStudents();
@@ -121,9 +159,6 @@ function App() {
 
         if (loadedCurrentUser) {
           setCurrentUserState(loadedCurrentUser);
-          // Set in storage for other components
-          setStorageCurrentUser(loadedCurrentUser);
-          
           // Redirect based on user role
           if (loadedCurrentUser.role === 'admin') {
             setCurrentView('admin');
@@ -137,9 +172,7 @@ function App() {
         setIsInitialized(true);
       } catch (error) {
         console.error('Error initializing app:', error);
-        // Even if there's an error, set initialized to true so the app can render
         setIsInitialized(true);
-        setMessage('Error loading application. Please refresh the page.');
       }
     };
 
@@ -179,24 +212,15 @@ function App() {
     if (token) {
       handleEmailConfirmation(token);
     }
-
-    // Check for Paystack callback
-    const reference = urlParams.get('reference');
-    const trxref = urlParams.get('trxref');
-    if (reference || trxref) {
-      console.log('🔗 Paystack callback detected:', { reference, trxref });
-      setCurrentView('payment-callback');
-    }
   }, []);
 
   const handleLogin = (email, password) => {
     try {
       const user = authenticateUser(email, password);
       if (user) {
-        // Remove password from user object for security
         const { password: _, ...userWithoutPassword } = user;
         setCurrentUserState(userWithoutPassword);
-        setStorageCurrentUser(userWithoutPassword); // Fixed: Use renamed function
+        setCurrentUser(userWithoutPassword);
 
         // Reset inactivity timer on login
         resetInactivityTimer();
@@ -225,7 +249,7 @@ function App() {
     try {
       // Check if email already exists in students
       const users = getUsers();
-      const existingUser = Object.values(users).find(user => user.email === email);
+      const existingUser = safeObjectEntries(users, 'student-register').find(([key, user]) => user.email === email);
 
       if (existingUser || students.find(s => s.email === email)) {
         setMessage('Email already exists. Please use a different email or login.');
@@ -263,7 +287,7 @@ function App() {
     try {
       // Check if email already exists
       const users = getUsers();
-      const existingUser = Object.values(users).find(user => user.email === teacherData.email);
+      const existingUser = safeObjectEntries(users, 'teacher-register').find(([key, user]) => user.email === teacherData.email);
 
       if (existingUser) {
         setMessage('Email already exists. Please use a different email or login.');
@@ -339,7 +363,7 @@ function App() {
 
     logoutUser();
     setCurrentUserState(null);
-    setStorageCurrentUser(null); // Fixed: Use renamed function
+    setCurrentUser(null);
     setCurrentView('login');
     setMessage('');
     setShowConfirmationInfo(false);
@@ -355,7 +379,7 @@ function App() {
       // Update in state
       const { password, ...studentWithoutPassword } = updatedStudent;
       setCurrentUserState(studentWithoutPassword);
-      setStorageCurrentUser(studentWithoutPassword); // Fixed: Use renamed function
+      setCurrentUser(studentWithoutPassword);
 
       // Update in students list
       setStudentsState(prev => 
@@ -379,7 +403,7 @@ function App() {
       // Update current user state
       const { password: _, ...userWithoutPassword } = updatedUser;
       setCurrentUserState(userWithoutPassword);
-      setStorageCurrentUser(userWithoutPassword); // Fixed: Use renamed function
+      setCurrentUser(userWithoutPassword);
     } catch (error) {
       console.error('Error updating user:', error);
     }
@@ -393,29 +417,15 @@ function App() {
         return false;
       }
 
-      // Get lesson details
-      const courses = getCourses();
-      const course = courses[courseKey];
-      const lesson = course?.lessons?.find(l => l.id === lessonId);
-      
-      if (!lesson) {
-        setMessage('Lesson not found');
-        return false;
-      }
-
-      // For demo, use simulated purchase
       const success = await purchaseLesson(currentUser.id, courseKey, lessonId);
       if (success) {
         // Refresh user data to reflect the purchase
         const updatedUser = getCurrentUser();
         if (updatedUser) {
           setCurrentUserState(updatedUser);
-          setStorageCurrentUser(updatedUser); // Fixed: Use renamed function
+          setCurrentUser(updatedUser);
         }
         setMessage('✅ Lesson purchased successfully!');
-        
-        // Redirect to payment success page
-        setCurrentView('payment-success');
         return true;
       } else {
         setMessage('❌ Failed to purchase lesson. Please try again.');
@@ -423,59 +433,6 @@ function App() {
       }
     } catch (error) {
       console.error('Error purchasing lesson:', error);
-      setMessage('❌ Error processing payment: ' + error.message);
-      return false;
-    }
-  };
-
-  // Handle Paystack payment - SIMPLIFIED VERSION
-  const handlePaystackPayment = async (courseKey, lessonId, email, name) => {
-    try {
-      if (!currentUser) {
-        setMessage('Please log in to make a payment');
-        return false;
-      }
-
-      // Get lesson details
-      const courses = getCourses();
-      const course = courses[courseKey];
-      const lesson = course?.lessons?.find(l => l.id === lessonId);
-      
-      if (!lesson) {
-        setMessage('Lesson not found');
-        return false;
-      }
-
-      // Store payment info for callback
-      localStorage.setItem('paystack_lesson_id', lessonId);
-      localStorage.setItem('paystack_course_key', courseKey);
-      localStorage.setItem('paystack_amount', lesson.price);
-      localStorage.setItem('paystack_student_id', currentUser.id);
-
-      // Generate reference
-      const reference = `paystack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem('paystack_reference', reference);
-
-      // Simulate payment process
-      setTimeout(() => {
-        // For demo, simulate success
-        setMessage('✅ Payment successful! Lesson unlocked.');
-        setCurrentView('payment-success');
-        
-        // Update user's purchased lessons
-        const updatedUser = {
-          ...currentUser,
-          purchasedLessons: [
-            ...(currentUser.purchasedLessons || []),
-            { courseKey, lessonId, purchasedAt: new Date().toISOString() }
-          ]
-        };
-        updateCurrentUser(updatedUser);
-      }, 1500);
-
-      return true;
-    } catch (error) {
-      console.error('Paystack payment error:', error);
       setMessage('❌ Error processing payment: ' + error.message);
       return false;
     }
@@ -556,57 +513,17 @@ function App() {
     </div>
   ) : null;
 
-  // Message Display Component
-  const MessageDisplay = () => {
-    if (!message) return null;
-    
-    let messageType = 'info';
-    if (message.includes('success') || message.includes('Success')) messageType = 'success';
-    if (message.includes('error') || message.includes('Error') || message.includes('invalid') || message.includes('Invalid')) messageType = 'error';
-    if (message.includes('email') || message.includes('Email')) messageType = 'info';
-
-    return (
-      <div className={`message ${messageType}`}>
-        {message}
-        <button 
-          className="close-message-btn" 
-          onClick={() => setMessage('')}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'inherit',
-            cursor: 'pointer',
-            marginLeft: '10px',
-            fontSize: '18px'
-          }}
-        >
-          ×
-        </button>
-      </div>
-    );
-  };
-
-  // Loading Component
-  const LoadingScreen = () => (
-    <div className="loading-screen">
-      <div className="loading-spinner"></div>
-      <p>Loading STEM Platform...</p>
-      {!isInitialized && (
-        <button 
-          className="retry-btn"
-          onClick={() => window.location.reload()}
-          style={{marginTop: '20px', padding: '10px 20px'}}
-        >
-          Click here if loading takes too long
-        </button>
-      )}
-    </div>
-  );
-
   // Render view based on current view and user role
   const renderView = () => {
     console.log('🎯 renderView called with currentView:', currentView);
     console.log('🎯 currentUser:', currentUser);
+
+    // Show message if exists
+    const MessageDisplay = () => message ? (
+      <div className={`message ${message.includes('success') ? 'success' : message.includes('email') ? 'info' : 'error'}`}>
+        {message}
+      </div>
+    ) : null;
 
     if (!currentUser) {
       console.log('👤 No current user, showing login/register views');
@@ -663,9 +580,7 @@ function App() {
             </>
           );
         case 'payment-success':
-          return <PaymentSuccess setCurrentView={setCurrentView} />;
-        case 'payment-callback':
-          return <PaymentCallback setCurrentView={setCurrentView} />;
+          return <PaymentSuccess />;
         case 'login':
         default:
           return (
@@ -688,12 +603,15 @@ function App() {
       }
     }
 
-    // User is logged in
+    // Role-based access control
+    console.log('🎯 Setting up role-based access control');
     const isAdmin = currentUser?.role === 'admin';
     const isTeacher = currentUser?.role === 'teacher';
     const isStudent = currentUser?.role === 'student';
+    console.log('🎯 User roles - Admin:', isAdmin, 'Teacher:', isTeacher, 'Student:', isStudent);
 
     // Handle general navigation views (accessible to all logged-in users)
+    console.log('🎯 Checking general navigation views for:', currentView);
     switch(currentView) {
       case 'about':
         return <About />;
@@ -717,9 +635,7 @@ function App() {
       case 'support':
         return <Support />;
       case 'payment-success':
-        return <PaymentSuccess setCurrentView={setCurrentView} />;
-      case 'payment-callback':
-        return <PaymentCallback setCurrentView={setCurrentView} />;
+        return <PaymentSuccess />;
       case 'admin-courses':
         if (isAdmin) {
           return <AdminCourseManagement currentUser={currentUser} />;
@@ -738,11 +654,13 @@ function App() {
           );
         }
       default:
+        console.log('🎯 No match in general navigation, continuing to role-specific views');
         break;
     }
 
     // Handle admin dashboard
     if (currentView === 'admin') {
+      console.log('🎯 Rendering admin dashboard');
       if (isAdmin) {
         return <AdminDashboard currentUser={currentUser} setCurrentView={setCurrentView} />;
       } else {
@@ -763,6 +681,7 @@ function App() {
 
     // Handle teacher dashboard
     if (currentView === 'teacher') {
+      console.log('🎯 Rendering teacher dashboard');
       if (isTeacher) {
         return <TeacherDashboard currentUser={currentUser} setCurrentUser={updateCurrentUser} />;
       } else {
@@ -783,6 +702,7 @@ function App() {
 
     // Student-specific views
     if (isStudent) {
+      console.log('🎯 Rendering student views for:', currentView);
       switch(currentView) {
         case 'profile':
           return <StudentProfile student={currentUser} setStudent={updateStudentData} />;
@@ -794,15 +714,12 @@ function App() {
               onLessonPurchase={handleLessonPurchase}
               onCheckLessonAccess={checkLessonAccess}
               onGetTeacherContact={getTeacherContactUrl}
-              onPaystackPayment={handlePaystackPayment}
             />
           );
         case 'discussion':
           return <DiscussionForum currentUser={currentUser} />;
         case 'payment-success':
-          return <PaymentSuccess setCurrentView={setCurrentView} />;
-        case 'payment-callback':
-          return <PaymentCallback setCurrentView={setCurrentView} />;
+          return <PaymentSuccess />;
         case 'dashboard':
         default:
           return (
@@ -816,6 +733,7 @@ function App() {
 
     // Teacher-specific views
     if (isTeacher) {
+      console.log('🎯 Rendering teacher views for:', currentView);
       switch(currentView) {
         case 'profile':
           return (
@@ -836,9 +754,7 @@ function App() {
             </div>
           );
         case 'payment-success':
-          return <PaymentSuccess setCurrentView={setCurrentView} />;
-        case 'payment-callback':
-          return <PaymentCallback setCurrentView={setCurrentView} />;
+          return <PaymentSuccess />;
         case 'dashboard':
         default:
           return <TeacherDashboard currentUser={currentUser} setCurrentUser={updateCurrentUser} />;
@@ -847,11 +763,10 @@ function App() {
 
     // Admin-specific views
     if (isAdmin) {
+      console.log('🎯 Rendering admin views for:', currentView);
       switch(currentView) {
         case 'payment-success':
-          return <PaymentSuccess setCurrentView={setCurrentView} />;
-        case 'payment-callback':
-          return <PaymentCallback setCurrentView={setCurrentView} />;
+          return <PaymentSuccess />;
         case 'dashboard':
         default:
           return <AdminDashboard currentUser={currentUser} setCurrentView={setCurrentView} />;
@@ -875,9 +790,15 @@ function App() {
   };
 
   if (!isInitialized) {
-    return <LoadingScreen />;
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner"></div>
+        <p>Loading STEM Platform...</p>
+      </div>
+    );
   }
 
+  console.log('🎯 Rendering main App component');
   return (
     <div className="App">
       {/* Inactivity Warning Modal */}
